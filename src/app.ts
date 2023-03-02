@@ -51,3 +51,13 @@ app.event('app_mention', async ({ event, say }) => {
         thread_ts: event.ts
     });
 });
+
+// --
+
+import express from 'express';
+{
+    const web = express();
+    const port = process.env.PORT || 3001;
+    web.get('/', (_req, res) => res.send('Hello World!'));
+    web.listen(port, () => console.log(`Example app listening on port ${port}!`));
+}
