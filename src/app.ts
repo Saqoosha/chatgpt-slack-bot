@@ -77,13 +77,13 @@ app.event('reaction_added', async ({ event, say }) => {
         ts: event.item.ts,
         inclusive: true,
     });
-    if (messages.messages?.length !== 1) { return; }
+    if (!messages.messages) { return; }
     const message = messages.messages[0];
     if (!message.text) { return; }
     console.log(message);
     const reply = await createChatCompletion([
-        { role: 'system', content: `あなたは優秀な翻訳家です。USERから受け取ったメッセージを${lang}に翻訳して返答します。返答する際に前後に解説をいれたりしません。翻訳したメッセージのみを返信します。` },
-        { role: 'user', content: message.text },
+        { role: 'system', content: `あなたは優秀な翻訳家です。USERから受け取ったメッセージを${lang}に翻訳して返答します。返答する際に前後に解説をいれたりしません。翻訳したメッセージのみを返信します。会話をするわけではないです。` },
+        { role: 'user', content: `"${message.text}"` },
     ]);
     await say({
         text: `${reply?.trim().replace(/^"(.*)"$/, '$1')}`,
