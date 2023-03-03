@@ -45,10 +45,12 @@ app.event('app_mention', async ({ event, say }) => {
         }
     }
     messages.push({ role: 'user', content: event.text || '' });
-    let reply = await createChatCompletion(messages);
-    reply = reply?.replace(new RegExp(`(<@${event.user}>\\s*)+`, 'g'), '');
+    let reply = await createChatCompletion(messages) || "???";
+    if (!reply.startsWith(`<@${event.user}>`)) {
+        reply = `<@${event.user}> ${reply}`;
+    }
     await say({
-        text: `<@${event.user}> ${reply}`,
+        text: reply,
         thread_ts: event.ts
     });
 });
