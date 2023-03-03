@@ -52,6 +52,45 @@ app.event('app_mention', async ({ event, say }) => {
     });
 });
 
+app.event('reaction_added', async ({ event, say }) => {
+    console.log(event);
+    if (event.item.type !== 'message') { return; }
+    const lang = {
+        'jp': '日本語',
+        'flag-jp': '日本語',
+        'us': '英語',
+        'flag-us': '英語',
+        'flag-tw': '台湾の繁体中国語',
+        'cn': '簡体中国語',
+        'flag-cn': '簡体中国語',
+        'de': 'ドイツ語',
+        'flag-de': 'ドイツ語',
+        'fr': 'フランス語',
+        'flag-fr': 'フランス語',
+        'es': 'スペイン語',
+        'flag-es': 'スペイン語',
+        'flag-in': 'ヒンディー語',
+    }[event.reaction];
+    if (!lang) { return; }
+    const messages = await app.client.conversations.replies({
+        channel: event.item.channel,
+        ts: event.item.ts,
+        inclusive: true,
+    });
+    if (messages.messages?.length !== 1) { return; }
+    const message = messages.messages[0];
+    if (!message.text) { return; }
+    console.log(message);
+    const reply = await createChatCompletion([
+        { role: 'system', content: `あなたは優秀な翻訳家です。USERから受け取ったメッセージを${lang}に翻訳して返答します。返答する際に前後に解説をいれたりしません。翻訳したメッセージのみを返信します。` },
+        { role: 'user', content: message.text },
+    ]);
+    await say({
+        text: `${reply?.trim().replace(/^"(.*)"$/, '$1')}`,
+        thread_ts: event.item.ts,
+    });
+});
+
 // --
 
 import express from 'express';
