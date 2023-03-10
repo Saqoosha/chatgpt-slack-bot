@@ -19,7 +19,7 @@ const app = new App({
 })();
 
 
-const processMessage = async (event: AppMentionEvent, say: SayFn) => {
+const processMessage = async (event: AppMentionEvent) => {
     let messages: ChatMessage[] = [];
     if (event.thread_ts) {
         const replies = await app.client.conversations.replies({
@@ -45,14 +45,7 @@ const processMessage = async (event: AppMentionEvent, say: SayFn) => {
         }
     }
     messages.push({ role: 'user', content: event.text || '' });
-    let reply = await createChatCompletion(messages) || "???";
-    if (!reply.startsWith(`<@${event.user}>`)) {
-        reply = `<@${event.user}> ${reply}`;
-    }
-    await say({
-        text: reply,
-        thread_ts: event.ts
-    });
+    return await createChatCompletion(messages) || "???";
 };
 
 
@@ -60,12 +53,23 @@ app.event('message', async ({ event, say }) => {
     console.log(event);
     const ev = event as any;
     if (ev.channel_type !== 'im') { return; }
-    await processMessage(ev, say);
+    const reply = await processMessage(ev);
+    await say({
+        text: reply,
+        thread_ts: event.ts
+    });
 });
 
 app.event('app_mention', async ({ event, say }) => {
     console.log(event);
-    await processMessage(event, say);
+    let reply = await processMessage(event);
+    if (!reply.startsWith(`<@${event.user}>`)) {
+        reply = `<@${event.user}> ${reply}`;
+    }
+    await say({
+        text: reply,
+        thread_ts: event.ts
+    });
 });
 
 app.event('reaction_added', async ({ event, say }) => {
