@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { App, LogLevel, AppMentionEvent, SayFn } from '@slack/bolt';
+import { App, LogLevel, AppMentionEvent } from '@slack/bolt';
 import { createChatCompletion, ChatMessage } from './chat';
 
 const app = new App({
@@ -18,6 +18,19 @@ const app = new App({
     console.log('⚡️ Bolt app is running!');
 })();
 
+const getChannelMemberCount = async (channel: string): Promise<number> => {
+    try {
+        const response = await app.client.conversations.members({
+            channel,
+            limit: 3,
+        });
+        console.log(response.members);
+        return response.members?.length || 0;
+    } catch (error) {
+        console.error(error);
+        return 0;
+    }
+};
 
 const processMessage = async (event: AppMentionEvent) => {
     let messages: ChatMessage[] = [];
@@ -48,16 +61,17 @@ const processMessage = async (event: AppMentionEvent) => {
     return await createChatCompletion(messages) || "???";
 };
 
-
 app.event('message', async ({ event, say }) => {
     console.log(event);
     const ev = event as any;
-    if (ev.channel_type !== 'im') { return; }
-    const reply = await processMessage(ev);
-    await say({
-        text: reply,
-        thread_ts: event.ts
-    });
+    if (ev.channel_type === 'im'
+        || (ev.channel_type === 'channel' && await getChannelMemberCount(ev.channel) == 2)) {
+        const reply = await processMessage(ev);
+        await say({
+            text: reply,
+            thread_ts: event.ts
+        });
+    }
 });
 
 app.event('app_mention', async ({ event, say }) => {
