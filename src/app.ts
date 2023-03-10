@@ -65,7 +65,7 @@ app.event('message', async ({ event, say }) => {
     console.log(event);
     const ev = event as any;
     if (ev.channel_type === 'im'
-        || (ev.channel_type === 'channel' && await getChannelMemberCount(ev.channel) == 2)) {
+        || ((ev.channel_type === 'channel' || ev.channel_type === 'group') && await getChannelMemberCount(ev.channel) == 2)) {
         const reply = await processMessage(ev);
         await say({
             text: reply,
