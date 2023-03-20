@@ -3,6 +3,7 @@ dotenv.config();
 
 import { App, LogLevel, AppMentionEvent } from '@slack/bolt';
 import { createChatCompletion, ChatMessage } from './chat';
+import { getAllKeyValue, readKeyValue, writeKeyValue } from './sskvs';
 
 const app = new App({
     token: process.env.SLACK_BOT_TOKEN!,
@@ -16,6 +17,11 @@ const app = new App({
 (async () => {
     await app.start();
     console.log('⚡️ Bolt app is running!');
+    const keyvalues = await getAllKeyValue();
+    for (const kv of keyvalues) {
+        systemPromptCache[kv.key] = kv.value;
+    }
+    console.log({ systemPromptCache });
 })();
 
 const getChannelName = async (channelId: string): Promise<string | null> => {
@@ -154,11 +160,41 @@ app.event('reaction_added', async ({ event, say }) => {
     });
 });
 
+app.command('/system-prompt', async ({ command, ack }) => {
+    console.log({ command });
+    await ack();
+
+    const channelName = await getChannelName(command.channel_id);
+    const key = `${command.channel_id}:${channelName}`;
+    if (command.text) {
+        await writeKeyValue(key, command.text);
+        systemPromptCache[key] = command.text;
+        await app.client.chat.postEphemeral({
+            channel: command.channel_id,
+            user: command.user_id,
+            text: `このチャンネルの ChatGPT システムプロンプトを「${command.text}」に設定しました。`,
+        });
+    } else {
+        const prompt = await readKeyValue(key);
+        if (prompt) {
+            await app.client.chat.postEphemeral({
+                channel: command.channel_id,
+                user: command.user_id,
+                text: `このチャンネルの ChatGPT システムプロンプトは「${prompt}」です。`,
+            });
+        } else {
+            await app.client.chat.postEphemeral({
+                channel: command.channel_id,
+                user: command.user_id,
+                text: `このチャンネルの ChatGPT システムプロンプトは設定されていません。`,
+            });
+        }
+    }
+});
+
 // --
 
 import express from 'express';
-import { readKeyValue } from './sskvs';
-import { channel } from 'diagnostics_channel';
 {
     const web = express();
     const port = process.env.PORT || 3001;
