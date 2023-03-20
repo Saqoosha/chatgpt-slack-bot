@@ -18,6 +18,16 @@ const app = new App({
     console.log('⚡️ Bolt app is running!');
 })();
 
+const getChannelName = async (channelId: string): Promise<string | null> => {
+    try {
+        const result = await app.client.conversations.info({ channel: channelId });
+        return result.channel.name || null;
+    } catch (error) {
+        console.error(`Error: ${error}`);
+        return null;
+    }
+};
+
 const getChannelMemberCount = async (channel: string): Promise<number> => {
     try {
         const response = await app.client.conversations.members({
@@ -32,8 +42,27 @@ const getChannelMemberCount = async (channel: string): Promise<number> => {
     }
 };
 
+let systemPromptCache: Record<string, string> = {};
+
+const getSystemPrompt = async (channelId: string): Promise<string> => {
+    const channelName = await getChannelName(channelId);
+    const key = `${channelId}:${channelName}`;
+
+    // うらで更新
+    readKeyValue(key).then((value) => { systemPromptCache[key] = value || ''; });
+
+    return systemPromptCache[key] || '';
+};
+
 const processMessage = async (event: AppMentionEvent) => {
     let messages: ChatMessage[] = [];
+    if (event.channel) {
+        const systemPrompt = await getSystemPrompt(event.channel);
+        console.log({ systemPrompt });
+        if (systemPrompt) {
+            messages.push({ role: 'system', content: systemPrompt });
+        }
+    }
     if (event.thread_ts) {
         const replies = await app.client.conversations.replies({
             token: process.env.SLACK_BOT_TOKEN!,
@@ -128,6 +157,8 @@ app.event('reaction_added', async ({ event, say }) => {
 // --
 
 import express from 'express';
+import { readKeyValue } from './sskvs';
+import { channel } from 'diagnostics_channel';
 {
     const web = express();
     const port = process.env.PORT || 3001;
