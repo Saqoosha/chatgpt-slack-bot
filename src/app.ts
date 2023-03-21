@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { performance } from 'perf_hooks';
 import { Readable } from 'stream';
 import { App, LogLevel, AppMentionEvent } from '@slack/bolt';
 import AsyncLock from 'async-lock';
