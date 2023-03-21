@@ -12,14 +12,20 @@ export type ChatMessage = {
     content: string;
 };
 
+export async function createChatCompletion(messages: ChatMessage[]) {
+    const completion = await openai.createChatCompletion({
+        model: "gpt-3.5-turbo",
+        messages,
+    });
+    return completion.data.choices[0].message?.content;
+}
+
 export async function createChatCompletionStream(messages: ChatMessage[]) {
     const completion = await openai.createChatCompletion({
         model: "gpt-3.5-turbo",
         messages,
         stream: true,
     }, { responseType: 'stream' });
-    // console.log(JSON.stringify(completion.data, null, 2));
-    // return completion.data.choices[0].message?.content;
 
     const stream = completion.data as any as Readable;
     stream.on('data', (buffer: Buffer) => {

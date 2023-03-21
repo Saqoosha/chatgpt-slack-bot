@@ -1,9 +1,10 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { Readable } from 'stream';
 import { App, LogLevel, AppMentionEvent } from '@slack/bolt';
 import AsyncLock from 'async-lock';
-import { ChatMessage, createChatCompletionStream } from './chat';
+import { ChatMessage, createChatCompletion, createChatCompletionStream } from './chat';
 import { getAllKeyValue, readKeyValue, writeKeyValue } from './sskvs';
 
 const lock = new AsyncLock();
@@ -63,7 +64,7 @@ const getSystemPrompt = async (channelId: string): Promise<string> => {
     return systemPromptCache[key] || '';
 };
 
-const processMessage = async (event: AppMentionEvent) => {
+const processMessage = async (event: AppMentionEvent, asStream: boolean = false) => {
     let messages: ChatMessage[] = [];
     if (event.channel) {
         const systemPrompt = await getSystemPrompt(event.channel);
@@ -74,7 +75,6 @@ const processMessage = async (event: AppMentionEvent) => {
     }
     if (event.thread_ts) {
         const replies = await app.client.conversations.replies({
-            token: process.env.SLACK_BOT_TOKEN!,
             channel: event.channel,
             ts: event.thread_ts,
             inclusive: true,
@@ -96,7 +96,11 @@ const processMessage = async (event: AppMentionEvent) => {
         }
     }
     messages.push({ role: 'user', content: event.text || '' });
-    return await createChatCompletionStream(messages);
+    if (asStream) {
+        return createChatCompletionStream(messages);
+    } else {
+        return createChatCompletion(messages);
+    }
 };
 
 app.event('message', async ({ event, say }) => {
@@ -105,7 +109,7 @@ app.event('message', async ({ event, say }) => {
     console.log(event);
     if (ev.channel_type === 'im'
         || ((ev.channel_type === 'channel' || ev.channel_type === 'group') && await getChannelMemberCount(ev.channel) == 2)) {
-        const stream = await processMessage(ev);
+        const stream = await processMessage(ev, true) as Readable;
         let t = performance.now();
         let reply = '';
         let prevReply = '';
@@ -144,14 +148,14 @@ app.event('message', async ({ event, say }) => {
 
 app.event('app_mention', async ({ event, say }) => {
     console.log(event);
-    // let reply = await processMessage(event);
-    // if (!reply.startsWith(`<@${event.user}>`)) {
-    //     reply = `<@${event.user}> ${reply}`;
-    // }
-    // await say({
-    //     text: reply,
-    //     thread_ts: event.ts
-    // });
+    let reply = await processMessage(event) as string;
+    if (!reply.startsWith(`<@${event.user}>`)) {
+        reply = `<@${event.user}> ${reply}`;
+    }
+    await say({
+        text: reply,
+        thread_ts: event.ts
+    });
 });
 
 app.event('reaction_added', async ({ event, say }) => {
@@ -183,14 +187,14 @@ app.event('reaction_added', async ({ event, say }) => {
     const message = messages.messages[0];
     if (!message.text) { return; }
     console.log(message);
-    // const reply = await createChatCompletion([
-    //     { role: 'system', content: `あなたは優秀な翻訳家です。USERから受け取ったメッセージを${lang}に翻訳して返答します。返答する際に前後に解説をいれたりしません。翻訳したメッセージのみを返信します。会話をするわけではないです。` },
-    //     { role: 'user', content: `"${message.text}"` },
-    // ]);
-    // await say({
-    //     text: `${reply?.trim().replace(/^"(.*)"$/, '$1')}`,
-    //     thread_ts: event.item.ts,
-    // });
+    const reply = await createChatCompletion([
+        { role: 'system', content: `あなたは優秀な翻訳家です。USERから受け取ったメッセージを${lang}に翻訳して返答します。返答する際に前後に解説をいれたりしません。翻訳したメッセージのみを返信します。会話をするわけではないです。` },
+        { role: 'user', content: `"${message.text}"` },
+    ]);
+    await say({
+        text: `${reply?.trim().replace(/^"(.*)"$/, '$1')}`,
+        thread_ts: event.item.ts,
+    });
 });
 
 app.command('/system-prompt', async ({ command, ack }) => {
