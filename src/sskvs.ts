@@ -28,7 +28,7 @@ async function readKeyValue(key: string): Promise<string> {
 async function getAllKeyValue(): Promise<KeyValue[]> {
     const response = await fetch(`${process.env.SSKVS_API_URL!}?action=getAll`);
     const result = await response.json();
-    console.log(result);
+    // console.log(result);
 
     if (result.error) {
         throw new Error(result.error.message);

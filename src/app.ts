@@ -5,6 +5,7 @@ import { performance } from 'perf_hooks';
 import { Readable } from 'stream';
 import { App, LogLevel, AppMentionEvent } from '@slack/bolt';
 import AsyncLock from 'async-lock';
+
 import { ChatMessage, createChatCompletion, createChatCompletionStream } from './chat';
 import { getAllKeyValue, readKeyValue, writeKeyValue } from './sskvs';
 
@@ -142,7 +143,9 @@ app.event('message', async ({ event, say }) => {
             }
         });
         stream.on('end', async () => {
-            await updateMessage();
+            lock.acquire('updateMessage', async () => {
+                await updateMessage();
+            });
         });
     }
 });
@@ -229,13 +232,3 @@ app.command('/system-prompt', async ({ command, ack }) => {
         }
     }
 });
-
-// --
-
-import express from 'express';
-{
-    const web = express();
-    const port = process.env.PORT || 3001;
-    web.get('/', (_req, res) => res.send('Hello World!'));
-    web.listen(port, () => console.log(`Example app listening on port ${port}!`));
-}
