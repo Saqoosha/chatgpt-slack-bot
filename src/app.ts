@@ -151,7 +151,7 @@ app.event('message', async ({ event }) => {
     const botMention = `<@${process.env.SLACK_BOT_USER_ID}>`;
     if (ev.channel_type === 'im'
         || ((ev.channel_type === 'channel' || ev.channel_type === 'group') && await getChannelMemberCount(ev.channel) == 2)
-        && ev.message?.startsWith(botMention) === false) {
+        && !ev.message?.startsWith(botMention)) {
         const stream = await processMessage(ev, true) as Readable;
         await sendReplyWithStream(ev.channel, ev.ts, stream);
     }
