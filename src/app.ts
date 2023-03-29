@@ -130,7 +130,7 @@ const sendReplyWithStream = async (channel: string, thread_ts: string, stream: R
     stream.on('data', async (data: Buffer) => {
         reply += data.toString();
         const dt = performance.now() - t;
-        if (dt > 3000) {
+        if (dt > 1000 && reply.length > 50) {
             t = performance.now();
             lock.acquire('updateMessage', async () => {
                 await updateMessage();
