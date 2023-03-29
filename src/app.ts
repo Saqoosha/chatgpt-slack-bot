@@ -105,61 +105,62 @@ const processMessage = async (event: AppMentionEvent, asStream: boolean = false)
     }
 };
 
-app.event('message', async ({ event, say }) => {
-    const ev = event as any;
-    if (ev.subtype) { return; }
-    console.log(event);
-    if (ev.channel_type === 'im'
-        || ((ev.channel_type === 'channel' || ev.channel_type === 'group') && await getChannelMemberCount(ev.channel) == 2)) {
-        const stream = await processMessage(ev, true) as Readable;
-        let t = performance.now();
-        let reply = '';
-        let prevReply = '';
-        let message: any;
-        const updateMessage = async () => {
-            if (reply === prevReply) { return; }
-            prevReply = reply;
-            if (message) {
-                await app.client.chat.update({
-                    channel: message.channel,
-                    ts: message.ts,
-                    text: reply,
-                });
-            } else {
-                message = await say({
-                    text: reply,
-                    thread_ts: event.ts
-                });
-            }
-        };
-        stream.on('data', async (data: Buffer) => {
-            reply += data.toString();
-            const dt = performance.now() - t;
-            if (dt > 1000) {
-                t = performance.now();
-                lock.acquire('updateMessage', async () => {
-                    await updateMessage();
-                });
-            }
-        });
-        stream.on('end', async () => {
+const sendReplyWithStream = async (channel: string, thread_ts: string, stream: Readable) => {
+    let t = performance.now();
+    let reply = '';
+    let prevReply = '';
+    let message: any;
+    const updateMessage = async () => {
+        if (reply === prevReply) { return; }
+        prevReply = reply;
+        if (message) {
+            await app.client.chat.update({
+                channel: message.channel,
+                ts: message.ts,
+                text: reply,
+            });
+        } else {
+            message = await app.client.chat.postMessage({
+                channel,
+                thread_ts,
+                text: reply,
+            });
+        }
+    };
+    stream.on('data', async (data: Buffer) => {
+        reply += data.toString();
+        const dt = performance.now() - t;
+        if (dt > 3000) {
+            t = performance.now();
             lock.acquire('updateMessage', async () => {
                 await updateMessage();
             });
+        }
+    });
+    stream.on('end', async () => {
+        lock.acquire('updateMessage', async () => {
+            await updateMessage();
         });
+    });
+};
+
+app.event('message', async ({ event }) => {
+    const ev = event as any;
+    if (ev.subtype) { return; }
+    console.log(event);
+    const botMention = `<@${process.env.SLACK_BOT_USER_ID}>`;
+    if (ev.channel_type === 'im'
+        || ((ev.channel_type === 'channel' || ev.channel_type === 'group') && await getChannelMemberCount(ev.channel) == 2)
+        && ev.message?.startsWith(botMention) === false) {
+        const stream = await processMessage(ev, true) as Readable;
+        await sendReplyWithStream(ev.channel, ev.ts, stream);
     }
 });
 
-app.event('app_mention', async ({ event, say }) => {
+app.event('app_mention', async ({ event }) => {
     console.log(event);
-    let reply = await processMessage(event) as string;
-    if (!reply.startsWith(`<@${event.user}>`)) {
-        reply = `<@${event.user}> ${reply}`;
-    }
-    await say({
-        text: reply,
-        thread_ts: event.ts
-    });
+    const stream = await processMessage(event, true) as Readable;
+    await sendReplyWithStream(event.channel, event.ts, stream);
 });
 
 app.event('reaction_added', async ({ event, say }) => {
