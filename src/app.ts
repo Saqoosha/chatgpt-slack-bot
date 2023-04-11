@@ -152,15 +152,33 @@ app.event('message', async ({ event }) => {
     if (ev.channel_type === 'im'
         || ((ev.channel_type === 'channel' || ev.channel_type === 'group') && await getChannelMemberCount(ev.channel) == 2)
         && !ev.message?.startsWith(botMention)) {
-        const stream = await processMessage(ev, true) as Readable;
-        await sendReplyWithStream(ev.channel, ev.ts, stream);
+        try {
+            const stream = await processMessage(ev, true) as Readable;
+            await sendReplyWithStream(ev.channel, ev.ts, stream);
+        } catch (error) {
+            console.error(error);
+            await app.client.chat.postMessage({
+                channel: ev.channel,
+                thread_ts: ev.ts,
+                text: `エラーが発生しました。${error}（スレッドが長すぎるかも…`
+            });
+        }
     }
 });
 
 app.event('app_mention', async ({ event }) => {
     console.log(event);
-    const stream = await processMessage(event, true) as Readable;
-    await sendReplyWithStream(event.channel, event.ts, stream);
+    try {
+        const stream = await processMessage(event, true) as Readable;
+        await sendReplyWithStream(event.channel, event.ts, stream);
+    } catch (error) {
+        console.error(error);
+        await app.client.chat.postMessage({
+            channel: event.channel,
+            thread_ts: event.ts,
+            text: `エラーが発生しました。${error}（スレッドが長すぎるかも…`
+        });
+    }
 });
 
 app.event('reaction_added', async ({ event, say }) => {
