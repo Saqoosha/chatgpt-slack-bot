@@ -20,7 +20,7 @@ async function writeKeyValue(key: string, value: string): Promise<string> {
 async function readKeyValue(key: string): Promise<string> {
     const response = await fetch(`${process.env.SSKVS_API_URL!}?action=read&key=${encodeURIComponent(key)}`);
     const result = await response.json();
-    console.log(result);
+    console.log("readKeyValue:", result);
 
     return result.value || '';
 }
