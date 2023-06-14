@@ -34,19 +34,24 @@ export async function createChatCompletionStream(messages: ChatMessage[]) {
             if (s == '[DONE]') {
                 counter.push(null);
             } else if (s.indexOf('delta') >= 0) {
-                const response = JSON.parse(s);
-                if (response.choices?.length > 0) {
-                    const choice = response.choices[0];
-                    switch (choice.finish_reason) {
-                        case null:
-                            if (choice.delta?.content) {
-                                counter.push(choice.delta.content);
-                            }
-                            break;
-                        case 'stop':
-                            counter.push(null);
-                            break;
+                try {
+                    const response = JSON.parse(s);
+                    if (response.choices?.length > 0) {
+                        const choice = response.choices[0];
+                        switch (choice.finish_reason) {
+                            case null:
+                                if (choice.delta?.content) {
+                                    counter.push(choice.delta.content);
+                                }
+                                break;
+                            case 'stop':
+                                counter.push(null);
+                                break;
+                        }
                     }
+                } catch (error) {
+                    console.error(s);
+                    console.error(error);
                 }
             }
         });
