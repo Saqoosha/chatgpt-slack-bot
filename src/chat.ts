@@ -14,7 +14,7 @@ export type ChatMessage = {
 
 export async function createChatCompletion(messages: ChatMessage[]) {
     const completion = await openai.createChatCompletion({
-        model: "gpt-3.5-turbo-0613",
+        model: "gpt-3.5-turbo",
         messages,
     });
     return completion.data.choices[0].message?.content;
@@ -22,7 +22,7 @@ export async function createChatCompletion(messages: ChatMessage[]) {
 
 export async function createChatCompletionStream(messages: ChatMessage[]) {
     const completion = await openai.createChatCompletion({
-        model: "gpt-3.5-turbo-0613",
+        model: "gpt-3.5-turbo",
         messages,
         stream: true,
     }, { responseType: 'stream' });
