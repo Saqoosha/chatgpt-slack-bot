@@ -1,5 +1,3 @@
-import fetch from "node-fetch";
-
 interface KeyValue {
     key: string;
     value: string;
@@ -7,7 +5,7 @@ interface KeyValue {
 
 async function writeKeyValue(key: string, value: string): Promise<string> {
     const response = await fetch(`${process.env.SSKVS_API_URL!}?action=write&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`);
-    const result = await response.json();
+    const result: any = await response.json();
     console.log(result);
 
     if (result.error) {

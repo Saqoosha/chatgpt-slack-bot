@@ -3,7 +3,7 @@ dotenv.config();
 
 import { performance } from 'perf_hooks';
 import { Readable } from 'stream';
-import { App, LogLevel, AppMentionEvent } from '@slack/bolt';
+const { App, LogLevel, AppMentionEvent } = require('@slack/bolt');
 import AsyncLock from 'async-lock';
 
 import { ChatMessage, createChatCompletion, createChatCompletionStream } from './chat';
@@ -66,7 +66,7 @@ const getSystemPrompt = async (channelId: string): Promise<string> => {
     return systemPromptCache[key] || '';
 };
 
-const processMessage = async (event: AppMentionEvent, asStream: boolean = false) => {
+const processMessage = async (event: typeof AppMentionEvent, asStream: boolean = false) => {
     let messages: ChatMessage[] = [];
     if (event.channel) {
         const systemPrompt = await getSystemPrompt(event.channel);
