@@ -4,6 +4,7 @@ interface KeyValue {
 }
 
 async function writeKeyValue(key: string, value: string): Promise<string> {
+    const fetch = (await import('node-fetch')).default;
     const response = await fetch(`${process.env.SSKVS_API_URL!}?action=write&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`);
     const result: any = await response.json();
     console.log(result);
@@ -16,16 +17,18 @@ async function writeKeyValue(key: string, value: string): Promise<string> {
 }
 
 async function readKeyValue(key: string): Promise<string> {
+    const fetch = (await import('node-fetch')).default;
     const response = await fetch(`${process.env.SSKVS_API_URL!}?action=read&key=${encodeURIComponent(key)}`);
-    const result = await response.json();
+    const result: any = await response.json();
     console.log("readKeyValue:", result);
 
     return result.value || '';
 }
 
 async function getAllKeyValue(): Promise<KeyValue[]> {
+    const fetch = (await import('node-fetch')).default;
     const response = await fetch(`${process.env.SSKVS_API_URL!}?action=getAll`);
-    const result = await response.json();
+    const result: any = await response.json();
     // console.log(result);
 
     if (result.error) {
