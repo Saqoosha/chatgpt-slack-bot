@@ -114,6 +114,7 @@ const sendReplyWithStream = async (channel: string, thread_ts: string, stream: R
         if (reply === prevReply) { return; }
         prevReply = reply;
         if (message) {
+            console.log(reply.length)
             await app.client.chat.update({
                 channel: message.channel,
                 ts: message.ts,
