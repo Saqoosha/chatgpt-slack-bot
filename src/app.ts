@@ -105,16 +105,17 @@ const processMessage = async (event: typeof AppMentionEvent, asStream: boolean =
     }
 };
 
-const sendReplyWithStream = async (channel: string, thread_ts: string, stream: Readable) => {
+const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readable): Promise<void> => {
     let t = performance.now();
     let reply = '';
     let prevReply = '';
     let message: any;
+
     const updateMessage = async () => {
-        if (reply === prevReply) { return; }
+        if (reply === prevReply) return;
         prevReply = reply;
         if (message) {
-            console.log(reply.length)
+            console.log(reply.length);
             await app.client.chat.update({
                 channel: message.channel,
                 ts: message.ts,
@@ -128,19 +129,24 @@ const sendReplyWithStream = async (channel: string, thread_ts: string, stream: R
             });
         }
     };
-    stream.on('data', async (data: Buffer) => {
-        reply += data.toString();
-        const dt = performance.now() - t;
-        if (dt > 1000 && reply.length > 50) {
-            t = performance.now();
-            lock.acquire('updateMessage', async () => {
-                await updateMessage();
-            });
-        }
-    });
-    stream.on('end', async () => {
-        lock.acquire('updateMessage', async () => {
-            await updateMessage();
+
+    return new Promise((resolve, reject) => {
+        stream.on('data', (data: Buffer) => {
+            reply += data.toString();
+            const dt = performance.now() - t;
+            if (dt > 1000 && reply.length > 50) {
+                t = performance.now();
+                lock.acquire('updateMessage', updateMessage).catch(reject);
+            }
+        });
+
+        stream.on('end', () => {
+            lock.acquire('updateMessage', updateMessage).then(resolve).catch(reject);
+        });
+
+        stream.on('error', (error) => {
+            console.error(`Stream encountered an error: ${error}`);
+            reject(error);
         });
     });
 };
