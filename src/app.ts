@@ -6,8 +6,9 @@ import { Readable } from 'stream';
 const { App, LogLevel, AppMentionEvent } = require('@slack/bolt');
 import AsyncLock from 'async-lock';
 
-import { ChatMessage, createChatCompletion, createChatCompletionStream } from './chat';
+import { createChatCompletion, createChatCompletionStream } from './chat';
 import { getAllKeyValue, readKeyValue, writeKeyValue } from './sskvs';
+import { ChatCompletionMessageParam } from 'openai/resources/index.mjs';
 
 const lock = new AsyncLock();
 
@@ -67,7 +68,7 @@ const getSystemPrompt = async (channelId: string): Promise<string> => {
 };
 
 const processMessage = async (event: typeof AppMentionEvent, asStream: boolean = false) => {
-    let messages: ChatMessage[] = [];
+    let messages: ChatCompletionMessageParam[] = [];
     if (event.channel) {
         const systemPrompt = await getSystemPrompt(event.channel);
         console.log({ systemPrompt });

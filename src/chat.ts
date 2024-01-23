@@ -1,17 +1,12 @@
 import { OpenAI } from "openai";
+import { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import { Readable } from "stream";
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
-export type Role = "system" | "user" | "assistant";
-export type ChatMessage = {
-    role: Role;
-    content: string;
-};
-
-export async function createChatCompletion(messages: ChatMessage[]) {
+export async function createChatCompletion(messages: ChatCompletionMessageParam[]) {
     const completion = await openai.chat.completions.create({
         model: "gpt-4-1106-preview",
         messages,
@@ -20,7 +15,7 @@ export async function createChatCompletion(messages: ChatMessage[]) {
     return completion.choices[0].message?.content;
 }
 
-export async function createChatCompletionStream(messages: ChatMessage[]) {
+export async function createChatCompletionStream(messages: ChatCompletionMessageParam[]) {
     const stream = openai.beta.chat.completions.stream({
         model: "gpt-4-1106-preview",
         messages,
