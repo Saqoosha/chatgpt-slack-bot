@@ -15,6 +15,7 @@ export async function createChatCompletion(messages: ChatMessage[]) {
     const completion = await openai.chat.completions.create({
         model: "gpt-4-1106-preview",
         messages,
+        max_tokens: 2000,
     });
     return completion.choices[0].message?.content;
 }
@@ -23,6 +24,7 @@ export async function createChatCompletionStream(messages: ChatMessage[]) {
     const stream = openai.beta.chat.completions.stream({
         model: "gpt-4-1106-preview",
         messages,
+        max_tokens: 2000,
         stream: true,
     });
 
