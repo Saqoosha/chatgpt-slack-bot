@@ -6,9 +6,11 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
+const MODEL = process.env.OPENAI_MODEL || "gpt-4-turbo-preview";
+
 export async function createChatCompletion(messages: ChatCompletionMessageParam[]) {
     const completion = await openai.chat.completions.create({
-        model: "gpt-4-1106-preview",
+        model: MODEL,
         messages,
         max_tokens: 2000,
     });
@@ -17,21 +19,21 @@ export async function createChatCompletion(messages: ChatCompletionMessageParam[
 
 export async function createChatCompletionStream(messages: ChatCompletionMessageParam[]) {
     const stream = openai.beta.chat.completions.stream({
-        model: "gpt-4-1106-preview",
+        model: MODEL,
         messages,
         max_tokens: 2000,
         stream: true,
     });
 
-    stream.on('content', (delta, snapshot) => {
+    stream.on("content", (delta, snapshot) => {
         counter.push(delta);
     });
-    stream.on('end', () => {
+    stream.on("end", () => {
         counter.push(null);
     });
-    stream.on('error', (error: Error) => {
+    stream.on("error", (error: Error) => {
         counter.push(null);
     });
-    const counter = new Readable({ read() { } });
+    const counter = new Readable({ read() {} });
     return counter;
 }
