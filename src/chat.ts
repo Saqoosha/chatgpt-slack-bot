@@ -6,7 +6,7 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
-const MODEL = process.env.OPENAI_MODEL || "gpt-4-turbo-preview";
+const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
 
 export async function createChatCompletion(messages: ChatCompletionMessageParam[]) {
     const completion = await openai.chat.completions.create({
