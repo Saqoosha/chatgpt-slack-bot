@@ -1,0 +1,9 @@
+---
+description: package management
+globs: 
+---
+
+# Your rule content
+
+- Prefer to use pnpm over npm
+  
