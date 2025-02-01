@@ -8,6 +8,7 @@ import { createChatCompletion } from "./chat";
 import { getChannelMemberCount, getChannelName } from "./slack";
 import { writeKeyValue, readKeyValue } from "./sskvs";
 import { app } from "./app";
+import { config } from "./config";
 
 // メッセージイベントのハンドラー
 export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArgs<"message">) {
@@ -19,7 +20,7 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
     const messageEvent = event as unknown as BaseMessageEvent;
     console.log(messageEvent);
 
-    const botMention = `<@${process.env.SLACK_BOT_USER_ID}>`;
+    const botMention = `<@${config.SLACK_BOT_USER_ID}>`;
 
     if (
         messageEvent.channel_type === "im" ||

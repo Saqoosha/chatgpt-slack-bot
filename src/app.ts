@@ -10,6 +10,7 @@ import { createChatCompletion, createChatCompletionStream } from "./chat";
 import { getAllKeyValue, readKeyValue } from "./sskvs";
 import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import { handleMessageEvent, handleMentionEvent, handleReactionEvent, handleSystemPromptCommand } from "./handlers";
+import { config } from "./config";
 
 // 基本的なメッセージイベントの型定義
 interface BaseMessageEvent {
@@ -33,19 +34,19 @@ const lock = new AsyncLock();
 const systemPromptCache: Record<string, string> = {};
 
 export const app = new App({
-    token: process.env.SLACK_BOT_TOKEN,
-    signingSecret: process.env.SLACK_SIGNING_SECRET,
+    token: config.SLACK_BOT_TOKEN,
+    signingSecret: config.SLACK_SIGNING_SECRET,
     socketMode: true,
-    appToken: process.env.SLACK_APP_TOKEN,
+    appToken: config.SLACK_APP_TOKEN,
     logLevel: LogLevel.INFO,
-    port: process.env.PORT ? Number.parseInt(process.env.PORT) : 3000,
+    port: config.PORT ? Number.parseInt(config.PORT) : 3000,
 });
 
 (async () => {
     await app.start();
     console.log("⚡️ Bolt app is running!");
     const keyvalues = await getAllKeyValue();
-    // console.log({ keyvalues });
+    console.log({ keyvalues });
 })();
 
 const getChannelName = async (channelId: string): Promise<string | null> => {

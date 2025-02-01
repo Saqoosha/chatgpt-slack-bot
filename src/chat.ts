@@ -1,12 +1,13 @@
 import { OpenAI } from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import { PassThrough } from "node:stream";
+import { config } from "./config";
 
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: config.OPENAI_API_KEY,
 });
 
-const MODEL = process.env.OPENAI_MODEL || "o3-mini";
+const MODEL = config.OPENAI_MODEL || "o3-mini";
 
 export async function createChatCompletion(messages: ChatCompletionMessageParam[]) {
     const completion = await openai.chat.completions.create({
