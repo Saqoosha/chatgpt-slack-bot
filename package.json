@@ -18,14 +18,16 @@
     "express": "^4.21.2",
     "node-fetch": "^3.3.2",
     "openai": "^4.82.0",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
     "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.7.3"
+    "ts-node-dev": "^2.0.0"
   },
   "devDependencies": {
     "@types/async-lock": "^1.4.2",
     "@types/express": "^4.17.21",
-    "@types/node": "^20.17.16"
+    "@types/node": "^20.17.16",
+    "typescript": "^5.7.3"
   },
   "peerDependencies": {
     "@types/node": "^18.15.3"

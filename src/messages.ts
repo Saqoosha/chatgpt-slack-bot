@@ -6,6 +6,7 @@ import { APIError, ThreadLengthError } from "./errors";
 import { createChatCompletion, createChatCompletionStream } from "./chat";
 import { app } from "./app";
 import { getSystemPrompt } from "./systemPrompt";
+import { logger, Timer } from "./logger";
 
 // トークン数の制限値（GPT-3.5/4の制限に基づく）
 const MAX_INPUT_TOKENS = 4000;
@@ -22,14 +23,13 @@ function estimateTokenCount(text: string): number {
 }
 
 export async function processMessage(event: BaseMessageEvent, asStream = false): Promise<string | Readable> {
-    const processStartTime = performance.now();
+    const timer = new Timer("process_message");
     const messages: ChatCompletionMessageParam[] = [];
     let totalTokens = 0;
 
     try {
         const systemPrompt = await getSystemPrompt(event.channel);
-        const systemPromptTime = performance.now() - processStartTime;
-        console.log({ systemPromptTime: `${systemPromptTime}ms` });
+        timer.end({ phase: "system_prompt_fetch", channelId: event.channel });
 
         if (systemPrompt) {
             const systemTokens = estimateTokenCount(systemPrompt);
@@ -41,14 +41,13 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
         }
 
         if (event.thread_ts) {
-            const threadStartTime = performance.now();
+            const threadTimer = new Timer("fetch_thread_replies");
             const replies = await app.client.conversations.replies({
                 channel: event.channel,
                 ts: event.thread_ts,
                 inclusive: true,
             });
-            const threadFetchTime = performance.now() - threadStartTime;
-            console.log({ threadFetchTime: `${threadFetchTime}ms` });
+            threadTimer.end({ channelId: event.channel, threadTs: event.thread_ts });
 
             if (!replies.messages) {
                 throw new APIError("Failed to fetch thread replies");
@@ -102,19 +101,30 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
             messages.push({ role: "user", content: event.text });
         }
 
-        const processingTime = performance.now() - processStartTime;
-        console.log({
-            totalProcessingTime: `${processingTime}ms`,
-            messageCount: messages.length,
-            totalTokens,
-        });
+        logger.info(
+            {
+                event: "message_processing_complete",
+                channelId: event.channel,
+                messageCount: messages.length,
+                totalTokens,
+            },
+            "Message processing completed",
+        );
 
         if (asStream) {
             return createChatCompletionStream(messages);
         }
         return createChatCompletion(messages);
     } catch (error) {
-        console.error(error);
+        logger.error(
+            {
+                event: "message_processing_error",
+                error,
+                channelId: event.channel,
+                threadTs: event.thread_ts,
+            },
+            "Error processing message",
+        );
         throw error;
     }
 }

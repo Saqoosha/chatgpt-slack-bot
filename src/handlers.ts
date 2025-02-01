@@ -11,10 +11,11 @@ import { readKeyValue } from "./sskvs";
 import { app } from "./app";
 import { config } from "./config";
 import { updateSystemPrompt } from "./systemPrompt";
+import { logger, Timer } from "./logger";
 
 // メッセージイベントのハンドラー
 export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArgs<"message">) {
-    const startTime = performance.now();
+    const timer = new Timer("handle_message");
 
     // Ignore messages with subtypes (like message_changed, etc.)
     if ("subtype" in event) {
@@ -22,7 +23,7 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
     }
 
     const messageEvent = event as unknown as BaseMessageEvent;
-    console.log(messageEvent);
+    logger.debug({ event: "message_received", messageEvent }, "Message event received");
 
     const botMention = `<@${config.SLACK_BOT_USER_ID}>`;
 
@@ -34,26 +35,33 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
     ) {
         try {
             const stream = (await processMessage(messageEvent, true)) as Readable;
-            const processingTime = performance.now() - startTime;
-            console.log(`Time to process request: ${processingTime}ms`);
+            timer.end({ phase: "message_processing", channelId: messageEvent.channel });
 
             await sendReplyWithStream(messageEvent.channel, messageEvent.ts, stream);
         } catch (error: unknown) {
-            console.error(error);
+            logger.error(
+                {
+                    event: "message_handler_error",
+                    error,
+                    channelId: messageEvent.channel,
+                    threadTs: messageEvent.ts,
+                },
+                "Error handling message",
+            );
             const errorMessage = getErrorMessage(error);
             await app.client.chat.postMessage({
                 channel: messageEvent.channel,
                 thread_ts: messageEvent.ts,
                 text: errorMessage,
             });
-            const errorTime = performance.now() - startTime;
-            console.log(`Error occurred after: ${errorTime}ms`);
+            timer.end({ status: "error", channelId: messageEvent.channel });
         }
     }
 }
 
 // メンション時のハンドラー
 export async function handleMentionEvent({ event }: SlackEventMiddlewareArgs<"app_mention">) {
+    const timer = new Timer("handle_mention");
     const messageEvent: BaseMessageEvent = {
         type: "message",
         channel: event.channel,
@@ -67,23 +75,37 @@ export async function handleMentionEvent({ event }: SlackEventMiddlewareArgs<"ap
     try {
         const stream = (await processMessage(messageEvent, true)) as Readable;
         await sendReplyWithStream(event.channel, event.ts, stream);
+        timer.end({ status: "success", channelId: event.channel });
     } catch (error: unknown) {
-        console.error(error);
+        logger.error(
+            {
+                event: "mention_handler_error",
+                error,
+                channelId: event.channel,
+                threadTs: event.ts,
+            },
+            "Error handling mention",
+        );
         const errorMessage = getErrorMessage(error);
         await app.client.chat.postMessage({
             channel: event.channel,
             thread_ts: event.ts,
             text: errorMessage,
         });
+        timer.end({ status: "error", channelId: event.channel });
     }
 }
 
 // リアクション追加時のハンドラー
 export async function handleReactionEvent({ event, say }: SlackEventMiddlewareArgs<"reaction_added">) {
-    console.log(event);
+    const timer = new Timer("handle_reaction");
+    logger.debug({ event: "reaction_received", reactionEvent: event }, "Reaction event received");
+
     if (event.item.type !== "message") {
+        timer.end({ status: "ignored", reason: "non_message_reaction" });
         return;
     }
+
     const lang = {
         jp: "日本語",
         "flag-jp": "日本語",
@@ -100,63 +122,107 @@ export async function handleReactionEvent({ event, say }: SlackEventMiddlewareAr
         "flag-es": "スペイン語",
         "flag-in": "ヒンディー語",
     }[event.reaction];
+
     if (!lang) {
+        timer.end({ status: "ignored", reason: "unsupported_language" });
         return;
     }
-    const messages = await app.client.conversations.replies({
-        channel: event.item.channel,
-        ts: event.item.ts,
-        inclusive: true,
-    });
-    if (!messages.messages) {
-        return;
+
+    try {
+        const messages = await app.client.conversations.replies({
+            channel: event.item.channel,
+            ts: event.item.ts,
+            inclusive: true,
+        });
+
+        if (!messages.messages) {
+            timer.end({ status: "error", reason: "no_messages" });
+            return;
+        }
+
+        const message = messages.messages[0];
+        if (!message.text) {
+            timer.end({ status: "error", reason: "no_text" });
+            return;
+        }
+
+        logger.debug({ originalMessage: message }, "Original message for translation");
+
+        const reply = await createChatCompletion([
+            {
+                role: "system",
+                content: `あなたは優秀な翻訳家です。USERから受け取ったメッセージを${lang}に翻訳して返答します。返答する際に前後に解説をいれたりしません。翻訳したメッセージのみを返信します。会話をするわけではないです。`,
+            },
+            { role: "user", content: `"${message.text}"` },
+        ]);
+
+        await say({
+            text: reply?.trim().replace(/^"(.*)"$/, "$1") || "",
+            thread_ts: event.item.ts,
+        });
+
+        timer.end({ status: "success", language: lang });
+    } catch (error) {
+        logger.error(
+            {
+                event: "translation_error",
+                error,
+                channelId: event.item.channel,
+                threadTs: event.item.ts,
+                language: lang,
+            },
+            "Error translating message",
+        );
+        timer.end({ status: "error", language: lang });
     }
-    const message = messages.messages[0];
-    if (!message.text) {
-        return;
-    }
-    console.log(message);
-    const reply = await createChatCompletion([
-        {
-            role: "system",
-            content: `あなたは優秀な翻訳家です。USERから受け取ったメッセージを${lang}に翻訳して返答します。返答する際に前後に解説をいれたりしません。翻訳したメッセージのみを返信します。会話をするわけではないです。`,
-        },
-        { role: "user", content: `"${message.text}"` },
-    ]);
-    await say({
-        text: reply?.trim().replace(/^"(.*)"$/, "$1") || "",
-        thread_ts: event.item.ts,
-    });
 }
 
 // システムプロンプトコマンドのハンドラー
 export async function handleSystemPromptCommand({ command, ack }: { command: SystemPromptCommand; ack: () => Promise<void> }) {
-    console.log({ command });
+    const timer = new Timer("handle_system_prompt_command");
+    logger.debug({ command }, "System prompt command received");
     await ack();
 
-    if (command.text) {
-        await updateSystemPrompt(command.channel_id, command.text);
-        await app.client.chat.postEphemeral({
-            channel: command.channel_id,
-            user: command.user_id,
-            text: `このチャンネルの ChatGPT システムプロンプトを「${command.text}」に設定しました。`,
-        });
-    } else {
-        const channelName = await getChannelName(command.channel_id);
-        const key = `${command.channel_id}:${channelName}`;
-        const prompt = await readKeyValue(key);
-        if (prompt) {
+    try {
+        if (command.text) {
+            await updateSystemPrompt(command.channel_id, command.text);
             await app.client.chat.postEphemeral({
                 channel: command.channel_id,
                 user: command.user_id,
-                text: `このチャンネルの ChatGPT システムプロンプトは「${prompt}」です。`,
+                text: `このチャンネルの ChatGPT システムプロンプトを「${command.text}」に設定しました。`,
             });
+            timer.end({ status: "success", action: "update" });
         } else {
-            await app.client.chat.postEphemeral({
-                channel: command.channel_id,
-                user: command.user_id,
-                text: "このチャンネルの ChatGPT システムプロンプトは設定されていません。",
-            });
+            const channelName = await getChannelName(command.channel_id);
+            const key = `${command.channel_id}:${channelName}`;
+            const prompt = await readKeyValue(key);
+            if (prompt) {
+                await app.client.chat.postEphemeral({
+                    channel: command.channel_id,
+                    user: command.user_id,
+                    text: `このチャンネルの ChatGPT システムプロンプトは「${prompt}」です。`,
+                });
+                timer.end({ status: "success", action: "read" });
+            } else {
+                await app.client.chat.postEphemeral({
+                    channel: command.channel_id,
+                    user: command.user_id,
+                    text: "このチャンネルの ChatGPT システムプロンプトは設定されていません。",
+                });
+                timer.end({ status: "success", action: "read_empty" });
+            }
         }
+    } catch (error) {
+        logger.error(
+            {
+                event: "system_prompt_command_error",
+                error,
+                channelId: command.channel_id,
+                userId: command.user_id,
+            },
+            "Error handling system prompt command",
+        );
+        timer.end({ status: "error" });
+        throw error;
     }
 }

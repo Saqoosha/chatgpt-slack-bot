@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import type { Readable } from "node:stream";
 import AsyncLock from "async-lock";
 import { app } from "./app";
+import { logger, Timer } from "./logger";
 
 const lock = new AsyncLock();
 
@@ -15,11 +16,13 @@ const channelCache = new Map<string, ChannelCache>();
 const CACHE_TTL = 1000 * 60 * 60; // 1時間
 
 export async function getChannelName(channelId: string): Promise<string | null> {
+    const timer = new Timer("get_channel_name");
     try {
         // キャッシュをチェック
         const cached = channelCache.get(channelId);
         const now = Date.now();
         if (cached && now - cached.timestamp < CACHE_TTL) {
+            timer.end({ status: "cache_hit", channelId });
             return cached.name;
         }
 
@@ -34,9 +37,18 @@ export async function getChannelName(channelId: string): Promise<string | null> 
             });
         }
 
+        timer.end({ status: "cache_miss", channelId });
         return channelName;
     } catch (error) {
-        console.error(`Error: ${error}`);
+        logger.error(
+            {
+                event: "get_channel_name_error",
+                error,
+                channelId,
+            },
+            "Error fetching channel name",
+        );
+        timer.end({ status: "error", channelId });
         return null;
     }
 }
@@ -51,11 +63,13 @@ const memberCountCache = new Map<string, MemberCountCache>();
 const MEMBER_CACHE_TTL = 1000 * 60 * 5; // 5分
 
 export async function getChannelMemberCount(channel: string): Promise<number> {
+    const timer = new Timer("get_channel_member_count");
     try {
         // キャッシュをチェック
         const cached = memberCountCache.get(channel);
         const now = Date.now();
         if (cached && now - cached.timestamp < MEMBER_CACHE_TTL) {
+            timer.end({ status: "cache_hit", channelId: channel });
             return cached.count;
         }
 
@@ -71,9 +85,18 @@ export async function getChannelMemberCount(channel: string): Promise<number> {
             timestamp: now,
         });
 
+        timer.end({ status: "cache_miss", channelId: channel });
         return count;
     } catch (error) {
-        console.error(error);
+        logger.error(
+            {
+                event: "get_channel_member_count_error",
+                error,
+                channelId: channel,
+            },
+            "Error fetching channel member count",
+        );
+        timer.end({ status: "error", channelId: channel });
         return 0;
     }
 }
@@ -84,8 +107,8 @@ const MIN_UPDATE_LENGTH = 50; // 最小更新文字数
 const MAX_BUFFER_SIZE = 1024 * 8; // 最大バッファサイズ
 
 export const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readable, requestStartTime?: number): Promise<void> => {
-    const startTime = performance.now();
-    let t = startTime;
+    const timer = new Timer("send_reply_with_stream");
+    let t = performance.now();
     let reply = "";
     let prevReply = "";
     let message: { channel?: string; ts?: string } | undefined;
@@ -124,12 +147,18 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
             // 最初のメッセージ送信時の時間を計測
             if (!firstMessageSent && requestStartTime) {
                 const totalTime = performance.now() - requestStartTime;
-                const streamTime = performance.now() - startTime;
-                console.log({
-                    totalTimeToFirstMessage: `${totalTime}ms`,
-                    streamProcessingTime: `${streamTime}ms`,
-                    messageLength: reply.length,
-                });
+                const streamTime = performance.now() - t;
+                logger.info(
+                    {
+                        event: "first_message_sent",
+                        channelId: channel,
+                        threadTs: thread_ts,
+                        totalTime: `${totalTime.toFixed(2)}ms`,
+                        streamTime: `${streamTime.toFixed(2)}ms`,
+                        messageLength: reply.length,
+                    },
+                    "First message sent",
+                );
                 firstMessageSent = true;
             }
         }
@@ -151,10 +180,25 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
 
         stream.on("end", () => {
             // 最後の更新を確実に行う
-            lock.acquire("updateMessage", updateMessage).then(resolve).catch(reject);
+            lock.acquire("updateMessage", updateMessage)
+                .then(() => {
+                    timer.end({ channelId: channel, threadTs: thread_ts });
+                    resolve();
+                })
+                .catch(reject);
         });
 
         stream.on("error", (error) => {
+            logger.error(
+                {
+                    event: "stream_error",
+                    error,
+                    channelId: channel,
+                    threadTs: thread_ts,
+                },
+                "Error in stream processing",
+            );
+            timer.end({ status: "error", channelId: channel, threadTs: thread_ts });
             reject(error);
         });
     });

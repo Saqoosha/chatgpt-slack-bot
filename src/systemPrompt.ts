@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { getChannelName } from "./slack";
 import { readKeyValue, writeKeyValue } from "./sskvs";
+import { logger, Timer } from "./logger";
 
 // システムプロンプトのキャッシュ
 interface SystemPromptCache {
@@ -25,18 +26,17 @@ export function invalidateSystemPromptCache(channelId: string, channelName?: str
         systemPromptCache.delete(legacyKey);
     }
     systemPromptCache.delete(channelId);
-    console.log(`Invalidated system prompt cache for channel: ${channelId}`);
+    logger.info({ event: "cache_invalidate", channelId }, "System prompt cache invalidated");
 }
 
 export async function getSystemPrompt(channelId: string): Promise<string> {
-    const startTime = performance.now();
+    const timer = new Timer("get_system_prompt");
     try {
         // まずチャンネルIDだけでキャッシュをチェック
         const cached = systemPromptCache.get(channelId);
         const now = Date.now();
         if (cached && now - cached.timestamp < SYSTEM_PROMPT_CACHE_TTL) {
-            const cacheHitTime = performance.now() - startTime;
-            console.log({ systemPromptCacheHit: `${cacheHitTime}ms` });
+            timer.end({ status: "cache_hit", channelId });
             return cached.prompt;
         }
 
@@ -49,8 +49,7 @@ export async function getSystemPrompt(channelId: string): Promise<string> {
         if (legacyCached && now - legacyCached.timestamp < SYSTEM_PROMPT_CACHE_TTL) {
             // 新しい形式にマイグレート
             systemPromptCache.set(channelId, legacyCached);
-            const cacheHitTime = performance.now() - startTime;
-            console.log({ systemPromptLegacyCacheHit: `${cacheHitTime}ms` });
+            timer.end({ status: "legacy_cache_hit", channelId });
             return legacyCached.prompt;
         }
 
@@ -67,22 +66,28 @@ export async function getSystemPrompt(channelId: string): Promise<string> {
         systemPromptCache.set(channelId, cacheEntry);
         systemPromptCache.set(key, cacheEntry); // 後方互換性のため
 
-        const cacheMissTime = performance.now() - startTime;
-        console.log({ systemPromptCacheMiss: `${cacheMissTime}ms` });
+        timer.end({ status: "cache_miss", channelId });
         return prompt;
     } catch (error) {
-        console.error("Error fetching system prompt:", error);
-        const errorTime = performance.now() - startTime;
-        console.log({ systemPromptError: `${errorTime}ms` });
+        logger.error({ event: "get_system_prompt_error", error, channelId }, "Error fetching system prompt");
+        timer.end({ status: "error", channelId });
         return "";
     }
 }
 
 export async function updateSystemPrompt(channelId: string, text: string): Promise<void> {
-    const channelName = await getChannelName(channelId);
-    const key = createCacheKey(channelId, channelName);
-    await writeKeyValue(key, text);
-    invalidateSystemPromptCache(channelId, channelName);
+    const timer = new Timer("update_system_prompt");
+    try {
+        const channelName = await getChannelName(channelId);
+        const key = createCacheKey(channelId, channelName);
+        await writeKeyValue(key, text);
+        invalidateSystemPromptCache(channelId, channelName);
+        timer.end({ status: "success", channelId });
+    } catch (error) {
+        logger.error({ event: "update_system_prompt_error", error, channelId }, "Error updating system prompt");
+        timer.end({ status: "error", channelId });
+        throw error;
+    }
 }
 
 export function getSystemPromptKey(channelId: string, channelName: string): string {
