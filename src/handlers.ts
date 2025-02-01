@@ -1,17 +1,21 @@
 import type { SlackEventMiddlewareArgs } from "@slack/bolt";
 import type { Readable } from "node:stream";
+import { performance } from "node:perf_hooks";
 import type { BaseMessageEvent, SystemPromptCommand } from "./types";
 import { getErrorMessage } from "./errors";
 import { processMessage } from "./messages";
 import { sendReplyWithStream } from "./slack";
 import { createChatCompletion } from "./chat";
 import { getChannelMemberCount, getChannelName } from "./slack";
-import { writeKeyValue, readKeyValue } from "./sskvs";
+import { readKeyValue } from "./sskvs";
 import { app } from "./app";
 import { config } from "./config";
+import { updateSystemPrompt } from "./systemPrompt";
 
 // メッセージイベントのハンドラー
 export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArgs<"message">) {
+    const startTime = performance.now();
+
     // Ignore messages with subtypes (like message_changed, etc.)
     if ("subtype" in event) {
         return;
@@ -30,6 +34,9 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
     ) {
         try {
             const stream = (await processMessage(messageEvent, true)) as Readable;
+            const processingTime = performance.now() - startTime;
+            console.log(`Time to process request: ${processingTime}ms`);
+
             await sendReplyWithStream(messageEvent.channel, messageEvent.ts, stream);
         } catch (error: unknown) {
             console.error(error);
@@ -39,6 +46,8 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
                 thread_ts: messageEvent.ts,
                 text: errorMessage,
             });
+            const errorTime = performance.now() - startTime;
+            console.log(`Error occurred after: ${errorTime}ms`);
         }
     }
 }
@@ -125,16 +134,16 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
     console.log({ command });
     await ack();
 
-    const channelName = await getChannelName(command.channel_id);
-    const key = `${command.channel_id}:${channelName}`;
     if (command.text) {
-        await writeKeyValue(key, command.text);
+        await updateSystemPrompt(command.channel_id, command.text);
         await app.client.chat.postEphemeral({
             channel: command.channel_id,
             user: command.user_id,
             text: `このチャンネルの ChatGPT システムプロンプトを「${command.text}」に設定しました。`,
         });
     } else {
+        const channelName = await getChannelName(command.channel_id);
+        const key = `${command.channel_id}:${channelName}`;
         const prompt = await readKeyValue(key);
         if (prompt) {
             await app.client.chat.postEphemeral({

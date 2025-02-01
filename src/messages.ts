@@ -1,11 +1,11 @@
 import type { Readable } from "node:stream";
+import { performance } from "node:perf_hooks";
 import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import type { BaseMessageEvent, SlackReply } from "./types";
 import { APIError, ThreadLengthError } from "./errors";
 import { createChatCompletion, createChatCompletionStream } from "./chat";
 import { app } from "./app";
-import { getChannelName } from "./slack";
-import { readKeyValue } from "./sskvs";
+import { getSystemPrompt } from "./systemPrompt";
 
 // トークン数の制限値（GPT-3.5/4の制限に基づく）
 const MAX_INPUT_TOKENS = 4000;
@@ -21,28 +21,16 @@ function estimateTokenCount(text: string): number {
     return englishTokens + japaneseTokens;
 }
 
-// システムプロンプトのキャッシュ
-const systemPromptCache: Record<string, string> = {};
-
-export async function getSystemPrompt(channelId: string): Promise<string> {
-    const channelName = await getChannelName(channelId);
-    const key = `${channelId}:${channelName}`;
-
-    // うらで更新
-    readKeyValue(key).then((value) => {
-        systemPromptCache[key] = value || "";
-    });
-
-    return systemPromptCache[key] || "";
-}
-
 export async function processMessage(event: BaseMessageEvent, asStream = false): Promise<string | Readable> {
+    const processStartTime = performance.now();
     const messages: ChatCompletionMessageParam[] = [];
     let totalTokens = 0;
 
     try {
         const systemPrompt = await getSystemPrompt(event.channel);
-        console.log({ systemPrompt });
+        const systemPromptTime = performance.now() - processStartTime;
+        console.log({ systemPromptTime: `${systemPromptTime}ms` });
+
         if (systemPrompt) {
             const systemTokens = estimateTokenCount(systemPrompt);
             totalTokens += systemTokens;
@@ -53,11 +41,14 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
         }
 
         if (event.thread_ts) {
+            const threadStartTime = performance.now();
             const replies = await app.client.conversations.replies({
                 channel: event.channel,
                 ts: event.thread_ts,
                 inclusive: true,
             });
+            const threadFetchTime = performance.now() - threadStartTime;
+            console.log({ threadFetchTime: `${threadFetchTime}ms` });
 
             if (!replies.messages) {
                 throw new APIError("Failed to fetch thread replies");
@@ -77,7 +68,6 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
                 if (message.text) {
                     const messageTokens = estimateTokenCount(message.text);
                     if (totalTokens + messageTokens > MAX_INPUT_TOKENS) {
-                        // トークン制限を超える場合は、その時点で終了
                         break;
                     }
                     totalTokens += messageTokens;
@@ -88,10 +78,8 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
                 }
             }
 
-            // 選択されたメッセージを追加
             messages.push(...selectedMessages);
 
-            // メッセージが1つも選択されなかった場合（最新のメッセージが制限を超える場合）
             if (selectedMessages.length === 0 && reversedMessages.length > 0) {
                 throw new ThreadLengthError("Latest message is too long", {
                     tokenCount: estimateTokenCount(reversedMessages[0].text || ""),
@@ -114,7 +102,12 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
             messages.push({ role: "user", content: event.text });
         }
 
-        console.log({ totalTokens, messageCount: messages.length });
+        const processingTime = performance.now() - processStartTime;
+        console.log({
+            totalProcessingTime: `${processingTime}ms`,
+            messageCount: messages.length,
+            totalTokens,
+        });
 
         if (asStream) {
             return createChatCompletionStream(messages);

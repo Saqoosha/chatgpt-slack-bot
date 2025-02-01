@@ -83,13 +83,14 @@ const STREAM_UPDATE_INTERVAL = 2000; // 更新間隔（ミリ秒）
 const MIN_UPDATE_LENGTH = 50; // 最小更新文字数
 const MAX_BUFFER_SIZE = 1024 * 8; // 最大バッファサイズ
 
-export const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readable): Promise<void> => {
+export const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readable, requestStartTime?: number): Promise<void> => {
     const startTime = performance.now();
     let t = startTime;
     let reply = "";
     let prevReply = "";
     let message: { channel?: string; ts?: string } | undefined;
     let bufferSize = 0;
+    let firstMessageSent = false;
 
     const updateMessage = async () => {
         if (reply === prevReply) return;
@@ -119,6 +120,18 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
                 text: reply,
             });
             bufferSize = 0;
+
+            // 最初のメッセージ送信時の時間を計測
+            if (!firstMessageSent && requestStartTime) {
+                const totalTime = performance.now() - requestStartTime;
+                const streamTime = performance.now() - startTime;
+                console.log({
+                    totalTimeToFirstMessage: `${totalTime}ms`,
+                    streamProcessingTime: `${streamTime}ms`,
+                    messageLength: reply.length,
+                });
+                firstMessageSent = true;
+            }
         }
     };
 
@@ -138,9 +151,7 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
 
         stream.on("end", () => {
             // 最後の更新を確実に行う
-            lock.acquire("updateMessage", updateMessage)
-                .then(resolve)
-                .catch(reject);
+            lock.acquire("updateMessage", updateMessage).then(resolve).catch(reject);
         });
 
         stream.on("error", (error) => {
