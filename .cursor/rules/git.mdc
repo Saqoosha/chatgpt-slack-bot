@@ -1,0 +1,320 @@
+---
+description: git
+globs:
+---
+## Git 使用時の注意
+
+### 1. 基本ルール
+
+- **明確な指示があるまで `commit` は行わない**
+  - 作業途中で "WIP コミット" したい場合などは、別途指示があるまで行わない
+- **Git の出力は直接コンソールに表示される**
+  - グローバル設定：`git config --global core.pager ""`
+  - PowerShell での出力制御：`Select-Object`, `Out-String` などを使用
+  - Windows でのパス区切り文字は `\` を使用
+- **新規ファイルを作成した場合、忘れずに `git add` でステージングする**
+  - 例：`git add src\filename.cs`  # Windows形式のパス
+- **コミット前に差分を必ず確認し、不要なファイルや差分が含まれていないかチェックする**
+
+### 2. コミットメッセージのルール
+
+#### コミットメッセージ作成の重要ポイント
+
+1. **必ず実際の変更内容を確認してからメッセージを書く**
+
+```fish
+# 変更内容の確認
+git diff                # 変更の詳細を確認
+git diff --staged       # ステージング済みの変更を確認
+```
+
+確認のポイント：
+
+- 変更されたファイル数と具体的な場所
+- 追加/削除された行数
+- 変更の種類（メソッドの削除、ロジックの変更、リファクタリングなど）
+- 影響範囲（単一のメソッド、複数のファイル、依存関係など）
+
+2. **差分に基づいたメッセージ作成**
+
+```fish
+# 悪い例（実際の変更を確認せずに書いたメッセージ）
+printf "refactor: Clean up code\n\n- Some refactoring\n- Fix various issues" | git commit -F -
+
+# 良い例（git diff の結果に基づいたメッセージ）
+printf "refactor: Clean up resource management code\n\n- Remove unused CleanupAllResources method (49 lines)\n- Remove redundant debug logging messages (36 locations)\n- Simplify material disposal logic in editor" | git commit -F -
+```
+
+3. **コミット後の最終確認と修正**
+
+```fish
+# コミット内容の確認
+git show | less        # 実際のコミット内容を確認
+
+# 必要に応じてメッセージを修正
+printf "Updated message based on actual changes" | git commit --amend -F -
+```
+
+#### コミットメッセージの構造
+
+```
+<type>: <summary>
+
+- <what changed 1> (<quantitative info>)
+- <what changed 2> (<why changed>)
+- <what changed 3>:
+  - <detail 1>
+  - <detail 2>
+```
+
+#### コミットメッセージのプレフィックス
+
+- `feat:` 新機能の追加
+- `fix:` バグ修正
+- `docs:` ドキュメントのみの変更
+- `style:` コードの意味に影響しない変更（フォーマット等）
+- `refactor:` リファクタリング
+- `test:` テストコードの追加・修正
+- `chore:` ビルドプロセスやツールの変更
+- `perf:` パフォーマンス改善
+- `ci:` CI 関連の変更
+- `build:` ビルドや依存管理の変更
+- `revert:` 過去のコミットの取り消し
+
+#### マルチラインコミットメッセージの書き方
+
+##### 1. 一時ファイルを使用する方法（最も安全で確実）
+
+```fish
+# 一時ファイルにメッセージを書き出し
+printf "feat: Add new feature\n\n- Implement user authentication\n- Add error handling\n- Update documentation" > /tmp/commit_msg.txt
+
+# 一時ファイルを使用してコミット
+git commit -F /tmp/commit_msg.txt
+
+# または既存のコミットメッセージを修正
+git commit --amend -F /tmp/commit_msg.txt
+
+# 一時ファイルの削除（オプション）
+rm /tmp/commit_msg.txt
+```
+
+特徴：
+- スクリプトやCI/CD、自動化に最適
+- 全シェルで動作が安定
+- メッセージの再利用が容易
+- 長文メッセージの編集が可能
+
+##### 2. パイプラインを使用する方法（シンプル）
+
+```fish
+# 直接パイプでメッセージを渡す
+printf "feat: Add new feature\n\n- Implement user authentication\n- Add error handling" | git commit -F -
+
+# または既存のコミットメッセージを修正
+printf "Updated commit message" | git commit --amend -F -
+```
+
+特徴：
+- 一時ファイルが不要
+- コマンドラインで完結
+- シンプルで高速
+- 自動化に適している
+
+##### 3. ヒアドキュメントを使用する方法（可読性が高い）
+
+```fish
+git commit -m "feat: Add new feature
+
+- Implement user authentication
+- Add error handling
+- Update documentation"
+```
+
+特徴：
+- 視覚的に分かりやすい
+- エディタライクな編集が可能
+- 対話的な使用に最適
+- コピー&ペーストが容易
+
+##### 4. エディタを使用する方法（長文に最適）
+
+```fish
+# デフォルトエディタが開きます
+git commit
+
+# 直前のコミットメッセージを編集
+git commit --amend
+```
+
+特徴：
+- 長文の編集に最適
+- フォーマットが容易
+- テンプレートの使用が可能
+- 慎重な編集が必要な場合に推奨
+
+それぞれの方法の使い分け：
+
+1. **一時ファイル方式**
+   - CI/CDパイプライン
+   - 自動化スクリプト
+   - メッセージの再利用が必要な場合
+   - 長文のテンプレート化されたメッセージ
+
+2. **パイプライン方式**
+   - 短～中程度のメッセージ
+   - 自動化スクリプト
+   - 高速な操作が必要な場合
+   - 一時ファイルを作りたくない場合
+
+3. **ヒアドキュメント方式**
+   - 対話的な作業
+   - 視覚的な確認が必要な場合
+   - チーム内での共有例として
+   - 中程度の長さのメッセージ
+
+4. **エディタ方式**
+   - 長文のメッセージ
+   - 慎重な編集が必要な場合
+   - テンプレートの使用
+   - 複雑なフォーマットが必要な場合
+
+### 3. 変更管理の手順
+
+#### 変更の分類方針
+
+- 依存関係（`package.json`, `ProjectSettings\ProjectSettings.asset` 等）
+- 構造・設定（ディレクトリ構造やプロジェクト設定）
+- インターフェース/API
+- 実装
+- テストやドキュメント
+
+#### コミット単位のルール
+
+- **Package の更新と Samples の更新は別コミットにする**
+  - Samples のコミットタイトルには `[Samples]` を付ける
+- 「一つの論理的変更につき一つのコミット」という粒度を意識する
+
+### 4. 作業手順
+
+#### 1. 変更内容の確認
+
+```fish
+git status  # 変更ファイルの一覧を確認
+git diff    # 変更の詳細を確認
+```
+
+#### 2. ステージング
+
+```fish
+git add -p                                     # 変更を対話的に確認しながらステージング
+git add src/                                   # ディレクトリをステージング
+git add package.json                           # 特定のファイルをステージング
+git diff --staged                              # ステージング内容の最終確認
+```
+
+#### 3. コミット
+
+```fish
+# 一時ファイルを使用する方法
+printf "feat: Update dependencies\n\n- Update package versions\n- Add new features" > /tmp/commit_msg.txt
+git commit -F /tmp/commit_msg.txt
+rm /tmp/commit_msg.txt
+
+# または直接パイプを使用する方法
+printf "feat: Update dependencies\n\n- Update package versions\n- Add new features" | git commit -F -
+```
+
+#### 4. コミット後の確認
+
+```fish
+git status  # 変更が残っていないか確認
+git log -1  # コミットの内容を確認
+git show    # コミットの詳細な差分を確認
+```
+
+#### 5. リモート操作
+
+```fish
+git pull origin main    # リモートの変更を取得してマージ
+git push origin main    # ローカルの変更をリモートに反映
+```
+
+#### 6. PRの作成
+
+```fish
+# GitHub CLI (gh) を使用したPR作成
+gh pr create --title "feat: タイトル" --body "# 概要
+
+## 変更内容
+- 変更点1
+- 変更点2
+
+## 動作
+- 期待される動作1
+- 期待される動作2"
+```
+
+- PRのタイトルはコミットメッセージのプレフィックスルールに従う
+- 本文は Markdown 形式で記述
+- 必要に応じて `--draft` フラグを使用してドラフトPRを作成
+
+##### gh コマンドの動作について
+
+1. **成功時の動作**
+   - PR作成が成功すると、PR番号とURLが表示される
+   - fish shell の出力が複雑に見える場合があるが、PR番号が表示されていれば成功
+   - 同じコマンドを再実行しないよう注意（既にPRが作成済みの場合はエラーになる）
+   - コマンド実行時に大量のコードが表示されることがあるが、これはfish shell の出力の特性で、実際のコマンドの成否には影響しない
+
+2. **確認方法**
+   - `gh pr list` でPRが作成されているか確認
+   - 作成されたPRの番号とステータスが表示される
+   - `gh pr view` で作成したPRの詳細を確認
+
+3. **トラブルシューティング**
+   - PR作成に失敗した場合は明確なエラーメッセージが表示される
+   - 認証エラーの場合は `gh auth status` で認証状態を確認
+   - ブランチがプッシュされていない場合は自動的にプッシュを試みる
+   - 大量のコード出力が表示される場合でも、エラーメッセージがない限り成功とみなせる
+
+4. **マルチラインテキスト処理**
+   - fish shell でマルチラインテキストを扱う場合は文字列展開を使用：
+
+     ```fish
+     # 文字列展開を使用する方法（推奨）
+     gh pr create --title "feat: New feature" --body "# Overview
+
+## Changes
+- Change 1
+- Change 2"
+     ```
+
+   - `$()` と バッククォート ``` ` ``` を使用した文字列展開が最も安定している
+   - エラーメッセージが表示されても、PR番号とURLが表示されていれば成功
+   - コンソール出力が乱れて見えることがあるが、実際のPR作成には影響しない
+   - 長いテキストの場合も、`$()` と ``` ` ``` の組み合わせを使用する（ヒアドキュメントは非推奨）
+
+### 5. トラブルシューティング
+
+#### fish shell 固有の問題
+
+1. **文字化けが発生する場合**
+   - fish shell の文字エンコーディングを UTF-8 に設定：
+
+     ```fish
+     set -x LC_CTYPE en_US.UTF-8
+     ```
+
+2. **Git の出力が崩れる場合**
+   - `Out-String` を使用して整形：
+
+     ```fish
+     git log | Out-String
+     ```
+
+   - または `Format-Table` を使用：
+
+     ```fish
+     git status | Format-Table -AutoSize
+     ```
