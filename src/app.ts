@@ -1,24 +1,44 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { performance } from 'perf_hooks';
-import { Readable } from 'stream';
-const { App, LogLevel, AppMentionEvent } = require('@slack/bolt');
+import { performance } from "node:perf_hooks";
+import type { Readable } from "node:stream";
+import { App, LogLevel } from "@slack/bolt";
+import type { SlackEventMiddlewareArgs } from "@slack/bolt";
 import AsyncLock from 'async-lock';
 
 import { createChatCompletion, createChatCompletionStream } from './chat';
 import { getAllKeyValue, readKeyValue, writeKeyValue } from './sskvs';
-import { ChatCompletionMessageParam } from 'openai/resources/index.mjs';
+import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
+
+// 基本的なメッセージイベントの型定義
+interface BaseMessageEvent {
+    type: string;
+    channel: string;
+    user: string;
+    text: string;
+    ts: string;
+    channel_type: "im" | "channel" | "group";
+    thread_ts?: string;
+    subtype?: string;
+}
+
+interface SlackReply {
+    ts: string;
+    text?: string;
+    bot_id?: string;
+}
 
 const lock = new AsyncLock();
+const systemPromptCache: Record<string, string> = {};
 
 const app = new App({
-    token: process.env.SLACK_BOT_TOKEN!,
-    signingSecret: process.env.SLACK_SIGNING_SECRET!,
+    token: process.env.SLACK_BOT_TOKEN,
+    signingSecret: process.env.SLACK_SIGNING_SECRET,
     socketMode: true,
-    appToken: process.env.SLACK_APP_TOKEN!,
+    appToken: process.env.SLACK_APP_TOKEN,
     logLevel: LogLevel.INFO,
-    port: parseInt(process.env.PORT!) || 3000,
+    port: process.env.PORT ? Number.parseInt(process.env.PORT) : 3000,
 });
 
 (async () => {
@@ -55,8 +75,6 @@ const getChannelMemberCount = async (channel: string): Promise<number> => {
     }
 };
 
-let systemPromptCache: Record<string, string> = {};
-
 const getSystemPrompt = async (channelId: string): Promise<string> => {
     const channelName = await getChannelName(channelId);
     const key = `${channelId}:${channelName}`;
@@ -67,56 +85,59 @@ const getSystemPrompt = async (channelId: string): Promise<string> => {
     return systemPromptCache[key] || '';
 };
 
-const processMessage = async (event: typeof AppMentionEvent, asStream: boolean = false) => {
-    let messages: ChatCompletionMessageParam[] = [];
-    if (event.channel) {
-        const systemPrompt = await getSystemPrompt(event.channel);
-        console.log({ systemPrompt });
-        if (systemPrompt) {
-            messages.push({ role: 'system', content: systemPrompt });
-        }
+const processMessage = async (event: BaseMessageEvent, asStream = false): Promise<string | Readable> => {
+    const messages: ChatCompletionMessageParam[] = [];
+
+    const systemPrompt = await getSystemPrompt(event.channel);
+    console.log({ systemPrompt });
+    if (systemPrompt) {
+        messages.push({ role: "system", content: systemPrompt });
     }
+
     if (event.thread_ts) {
         const replies = await app.client.conversations.replies({
             channel: event.channel,
             ts: event.thread_ts,
             inclusive: true,
         });
-        const sorted = replies.messages?.sort((a, b) => {
-            if (a.ts! < b.ts!) {
-                return -1;
-            }
-            if (a.ts! > b.ts!) {
-                return 1;
-            }
-            return 0;
-        }) || [];
+        const sorted =
+            replies.messages?.sort((a: SlackReply, b: SlackReply) => {
+                if (a.ts < b.ts) return -1;
+                if (a.ts > b.ts) return 1;
+                return 0;
+            }) || [];
+
         for (const message of sorted) {
-            messages.push({
-                role: message.bot_id ? 'assistant' : 'user',
-                content: message.text || ''
-            });
+            if (message.text) {
+                messages.push({
+                    role: message.bot_id ? "assistant" : "user",
+                    content: message.text,
+                });
+            }
         }
     }
-    messages.push({ role: 'user', content: event.text || '' });
+
+    if (event.text) {
+        messages.push({ role: "user", content: event.text });
+    }
+
     if (asStream) {
         return createChatCompletionStream(messages);
-    } else {
-        return createChatCompletion(messages);
     }
+    return createChatCompletion(messages);
 };
 
 const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readable): Promise<void> => {
-    let t = performance.now();
-    let reply = '';
-    let prevReply = '';
-    let message: any;
+    const startTime = performance.now();
+    let t = startTime;
+    let reply = "";
+    let prevReply = "";
+    let message: { channel?: string; ts?: string } | undefined;
 
     const updateMessage = async () => {
         if (reply === prevReply) return;
         prevReply = reply;
         if (message) {
-            console.log(reply.length);
             await app.client.chat.update({
                 channel: message.channel,
                 ts: message.ts,
@@ -132,59 +153,78 @@ const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readabl
     };
 
     return new Promise((resolve, reject) => {
-        stream.on('data', (data: Buffer) => {
+        stream.on("data", (data: Buffer) => {
             reply += data.toString();
             const dt = performance.now() - t;
-            if (dt > 1000 && reply.length > 50) {
+            if (dt > 2000 && reply.length > 50) {
                 t = performance.now();
-                lock.acquire('updateMessage', updateMessage).catch(reject);
+                lock.acquire("updateMessage", updateMessage).catch(reject);
             }
         });
 
-        stream.on('end', () => {
-            lock.acquire('updateMessage', updateMessage).then(resolve).catch(reject);
+        stream.on("end", () => {
+            lock.acquire("updateMessage", updateMessage).then(resolve).catch(reject);
         });
 
-        stream.on('error', (error) => {
-            console.error(`Stream encountered an error: ${error}`);
+        stream.on("error", (error) => {
             reject(error);
         });
     });
 };
 
-app.event('message', async ({ event }) => {
-    const ev = event as any;
-    if (ev.subtype) { return; }
-    console.log(event);
+app.event("message", async ({ event, say }: SlackEventMiddlewareArgs<"message">) => {
+    // Ignore messages with subtypes (like message_changed, etc.)
+    if ("subtype" in event) {
+        return;
+    }
+
+    const messageEvent = event as unknown as BaseMessageEvent;
+    console.log(messageEvent);
+
     const botMention = `<@${process.env.SLACK_BOT_USER_ID}>`;
-    if (ev.channel_type === 'im'
-        || ((ev.channel_type === 'channel' || ev.channel_type === 'group') && await getChannelMemberCount(ev.channel) == 2)
-        && !ev.text?.startsWith(botMention)) {
+
+    if (
+        messageEvent.channel_type === "im" ||
+        ((messageEvent.channel_type === "channel" || messageEvent.channel_type === "group") &&
+            (await getChannelMemberCount(messageEvent.channel)) === 2 &&
+            !messageEvent.text?.startsWith(botMention))
+    ) {
         try {
-            const stream = await processMessage(ev, true) as Readable;
-            await sendReplyWithStream(ev.channel, ev.ts, stream);
-        } catch (error) {
+            const stream = (await processMessage(messageEvent, true)) as Readable;
+            await sendReplyWithStream(messageEvent.channel, messageEvent.ts, stream);
+        } catch (error: unknown) {
             console.error(error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
             await app.client.chat.postMessage({
-                channel: ev.channel,
-                thread_ts: ev.ts,
-                text: `エラーが発生しました。${error}（スレッドが長すぎるかも…`
+                channel: messageEvent.channel,
+                thread_ts: messageEvent.ts,
+                text: `エラーが発生しました：${errorMessage}（スレッドが長すぎるかも…）`,
             });
         }
     }
 });
 
 app.event('app_mention', async ({ event }) => {
-    console.log(event);
+    const messageEvent: BaseMessageEvent = {
+        type: "message",
+        channel: event.channel,
+        user: event.user,
+        text: event.text || "",
+        ts: event.ts,
+        channel_type: "channel",
+        thread_ts: event.thread_ts,
+    };
+
     try {
-        const stream = await processMessage(event, true) as Readable;
+        const stream = (await processMessage(messageEvent, true)) as Readable;
         await sendReplyWithStream(event.channel, event.ts, stream);
-    } catch (error) {
+    } catch (error: unknown) {
         console.error(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         await app.client.chat.postMessage({
             channel: event.channel,
             thread_ts: event.ts,
-            text: `エラーが発生しました。${error}（スレッドが長すぎるかも…`
+            text: `エラーが発生しました：${errorMessage}（スレッドが長すぎるかも…）`,
         });
     }
 });
@@ -223,7 +263,7 @@ app.event('reaction_added', async ({ event, say }) => {
         { role: 'user', content: `"${message.text}"` },
     ]);
     await say({
-        text: `${reply?.trim().replace(/^"(.*)"$/, '$1')}`,
+        text: reply?.trim().replace(/^"(.*)"$/, "$1") || "",
         thread_ts: event.item.ts,
     });
 });
@@ -254,7 +294,7 @@ app.command('/system-prompt', async ({ command, ack }) => {
             await app.client.chat.postEphemeral({
                 channel: command.channel_id,
                 user: command.user_id,
-                text: `このチャンネルの ChatGPT システムプロンプトは設定されていません。`,
+                text: "このチャンネルの ChatGPT システムプロンプトは設定されていません。",
             });
         }
     }
