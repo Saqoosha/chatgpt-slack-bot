@@ -1,15 +1,15 @@
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
 dotenv.config();
 
 import { performance } from "node:perf_hooks";
 import type { Readable } from "node:stream";
 import { App, LogLevel } from "@slack/bolt";
-import type { SlackEventMiddlewareArgs } from "@slack/bolt";
-import AsyncLock from 'async-lock';
+import AsyncLock from "async-lock";
 
-import { createChatCompletion, createChatCompletionStream } from './chat';
-import { getAllKeyValue, readKeyValue, writeKeyValue } from './sskvs';
+import { createChatCompletion, createChatCompletionStream } from "./chat";
+import { getAllKeyValue, readKeyValue } from "./sskvs";
 import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
+import { handleMessageEvent, handleMentionEvent, handleReactionEvent, handleSystemPromptCommand } from "./handlers";
 
 // 基本的なメッセージイベントの型定義
 interface BaseMessageEvent {
@@ -32,7 +32,7 @@ interface SlackReply {
 const lock = new AsyncLock();
 const systemPromptCache: Record<string, string> = {};
 
-const app = new App({
+export const app = new App({
     token: process.env.SLACK_BOT_TOKEN,
     signingSecret: process.env.SLACK_SIGNING_SECRET,
     socketMode: true,
@@ -43,12 +43,9 @@ const app = new App({
 
 (async () => {
     await app.start();
-    console.log('⚡️ Bolt app is running!');
+    console.log("⚡️ Bolt app is running!");
     const keyvalues = await getAllKeyValue();
-    for (const kv of keyvalues) {
-        systemPromptCache[kv.key] = kv.value;
-    }
-    console.log({ systemPromptCache });
+    // console.log({ keyvalues });
 })();
 
 const getChannelName = async (channelId: string): Promise<string | null> => {
@@ -80,9 +77,11 @@ const getSystemPrompt = async (channelId: string): Promise<string> => {
     const key = `${channelId}:${channelName}`;
 
     // うらで更新
-    readKeyValue(key).then((value) => { systemPromptCache[key] = value || ''; });
+    readKeyValue(key).then((value) => {
+        systemPromptCache[key] = value || "";
+    });
 
-    return systemPromptCache[key] || '';
+    return systemPromptCache[key] || "";
 };
 
 const processMessage = async (event: BaseMessageEvent, asStream = false): Promise<string | Readable> => {
@@ -172,130 +171,46 @@ const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readabl
     });
 };
 
-app.event("message", async ({ event, say }: SlackEventMiddlewareArgs<"message">) => {
-    // Ignore messages with subtypes (like message_changed, etc.)
-    if ("subtype" in event) {
-        return;
-    }
+// エラー型の定義
+interface SlackBotError extends Error {
+    type: "API_ERROR" | "THREAD_LENGTH_ERROR" | "RATE_LIMIT_ERROR" | "UNKNOWN_ERROR";
+    details?: unknown;
+}
 
-    const messageEvent = event as unknown as BaseMessageEvent;
-    console.log(messageEvent);
-
-    const botMention = `<@${process.env.SLACK_BOT_USER_ID}>`;
-
-    if (
-        messageEvent.channel_type === "im" ||
-        ((messageEvent.channel_type === "channel" || messageEvent.channel_type === "group") &&
-            (await getChannelMemberCount(messageEvent.channel)) === 2 &&
-            !messageEvent.text?.startsWith(botMention))
+class APIError extends Error implements SlackBotError {
+    type = "API_ERROR" as const;
+    constructor(
+        message: string,
+        public details?: unknown,
     ) {
-        try {
-            const stream = (await processMessage(messageEvent, true)) as Readable;
-            await sendReplyWithStream(messageEvent.channel, messageEvent.ts, stream);
-        } catch (error: unknown) {
-            console.error(error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            await app.client.chat.postMessage({
-                channel: messageEvent.channel,
-                thread_ts: messageEvent.ts,
-                text: `エラーが発生しました：${errorMessage}（スレッドが長すぎるかも…）`,
-            });
-        }
+        super(message);
+        this.name = "APIError";
     }
-});
+}
 
-app.event('app_mention', async ({ event }) => {
-    const messageEvent: BaseMessageEvent = {
-        type: "message",
-        channel: event.channel,
-        user: event.user,
-        text: event.text || "",
-        ts: event.ts,
-        channel_type: "channel",
-        thread_ts: event.thread_ts,
-    };
-
-    try {
-        const stream = (await processMessage(messageEvent, true)) as Readable;
-        await sendReplyWithStream(event.channel, event.ts, stream);
-    } catch (error: unknown) {
-        console.error(error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        await app.client.chat.postMessage({
-            channel: event.channel,
-            thread_ts: event.ts,
-            text: `エラーが発生しました：${errorMessage}（スレッドが長すぎるかも…）`,
-        });
+class ThreadLengthError extends Error implements SlackBotError {
+    type = "THREAD_LENGTH_ERROR" as const;
+    constructor(
+        message: string,
+        public details?: unknown,
+    ) {
+        super(message);
+        this.name = "ThreadLengthError";
     }
-});
+}
 
-app.event('reaction_added', async ({ event, say }) => {
-    console.log(event);
-    if (event.item.type !== 'message') { return; }
-    const lang = {
-        'jp': '日本語',
-        'flag-jp': '日本語',
-        'us': '英語',
-        'flag-us': '英語',
-        'flag-tw': '台湾の繁体中国語',
-        'cn': '簡体中国語',
-        'flag-cn': '簡体中国語',
-        'de': 'ドイツ語',
-        'flag-de': 'ドイツ語',
-        'fr': 'フランス語',
-        'flag-fr': 'フランス語',
-        'es': 'スペイン語',
-        'flag-es': 'スペイン語',
-        'flag-in': 'ヒンディー語',
-    }[event.reaction];
-    if (!lang) { return; }
-    const messages = await app.client.conversations.replies({
-        channel: event.item.channel,
-        ts: event.item.ts,
-        inclusive: true,
-    });
-    if (!messages.messages) { return; }
-    const message = messages.messages[0];
-    if (!message.text) { return; }
-    console.log(message);
-    const reply = await createChatCompletion([
-        { role: 'system', content: `あなたは優秀な翻訳家です。USERから受け取ったメッセージを${lang}に翻訳して返答します。返答する際に前後に解説をいれたりしません。翻訳したメッセージのみを返信します。会話をするわけではないです。` },
-        { role: 'user', content: `"${message.text}"` },
-    ]);
-    await say({
-        text: reply?.trim().replace(/^"(.*)"$/, "$1") || "",
-        thread_ts: event.item.ts,
-    });
-});
-
-app.command('/system-prompt', async ({ command, ack }) => {
-    console.log({ command });
-    await ack();
-
-    const channelName = await getChannelName(command.channel_id);
-    const key = `${command.channel_id}:${channelName}`;
-    if (command.text) {
-        await writeKeyValue(key, command.text);
-        systemPromptCache[key] = command.text;
-        await app.client.chat.postEphemeral({
-            channel: command.channel_id,
-            user: command.user_id,
-            text: `このチャンネルの ChatGPT システムプロンプトを「${command.text}」に設定しました。`,
-        });
-    } else {
-        const prompt = await readKeyValue(key);
-        if (prompt) {
-            await app.client.chat.postEphemeral({
-                channel: command.channel_id,
-                user: command.user_id,
-                text: `このチャンネルの ChatGPT システムプロンプトは「${prompt}」です。`,
-            });
-        } else {
-            await app.client.chat.postEphemeral({
-                channel: command.channel_id,
-                user: command.user_id,
-                text: "このチャンネルの ChatGPT システムプロンプトは設定されていません。",
-            });
-        }
+class RateLimitError extends Error implements SlackBotError {
+    type = "RATE_LIMIT_ERROR" as const;
+    constructor(
+        message: string,
+        public details?: unknown,
+    ) {
+        super(message);
+        this.name = "RateLimitError";
     }
-});
+}
+
+app.event("message", handleMessageEvent);
+app.event("app_mention", handleMentionEvent);
+app.event("reaction_added", handleReactionEvent);
+app.command("/system-prompt", handleSystemPromptCommand);
