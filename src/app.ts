@@ -305,6 +305,7 @@ class RateLimitError extends Error implements SlackBotError {
 }
 
 app.event("message", handleMessageEvent);
-app.event("app_mention", handleMentionEvent);
+// app_mentionイベントを無効化して二重応答を防止
+// app.event("app_mention", handleMentionEvent);
 app.event("reaction_added", handleReactionEvent);
 app.command("/system-prompt", handleSystemPromptCommand);
