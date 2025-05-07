@@ -11,6 +11,7 @@ import { getAllKeyValue, readKeyValue } from "./sskvs";
 import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import { handleMessageEvent, handleMentionEvent, handleReactionEvent, handleSystemPromptCommand } from "./handlers";
 import { config } from "./config";
+import { logger } from "./logger";
 
 // 基本的なメッセージイベントの型定義
 interface BaseMessageEvent {
@@ -42,11 +43,103 @@ export const app = new App({
     port: config.PORT ? Number.parseInt(config.PORT) : 3000,
 });
 
+// グローバルエラーハンドラの追加
+process.on("uncaughtException", (error) => {
+    logger.error(
+        {
+            event: "uncaught_exception",
+            error,
+        },
+        "Uncaught exception occurred",
+    );
+    // プロセスを終了させないようにエラーをキャッチするだけ
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+    logger.error(
+        {
+            event: "unhandled_rejection",
+            reason,
+            promise,
+        },
+        "Unhandled promise rejection occurred",
+    );
+    // プロセスを終了させないようにエラーをキャッチするだけ
+});
+
+// Boltのグローバルエラーハンドラ
+app.error(async (error) => {
+    logger.error(
+        {
+            event: "bolt_error",
+            error,
+        },
+        "Error in Bolt app",
+    );
+    // エラーを処理して、アプリが落ちないようにする
+});
+
+// Slack接続の監視とヘルスチェック
+let isHealthy = true;
+const HEALTH_CHECK_INTERVAL = 60000; // 1分ごとにヘルスチェック
+
+// 定期的なヘルスチェックを実行
+const healthCheck = async () => {
+    try {
+        // Slackの認証情報をチェックして接続状態を確認
+        await app.client.auth.test();
+
+        if (!isHealthy) {
+            logger.info({ event: "slack_connection_restored" }, "Connection to Slack has been restored");
+            isHealthy = true;
+        }
+    } catch (error) {
+        if (isHealthy) {
+            logger.error({ event: "slack_connection_failed", error }, "Failed to connect to Slack API, connection may be broken");
+            isHealthy = false;
+        }
+
+        // 接続エラーが続く場合は、一定回数後にプロセスを再起動
+        // 静的な回数カウントではなく、連続失敗回数をファイルに保存してチェックする方法もある
+        if (!isHealthy) {
+            // エラーが5回連続で発生したらプロセスを再起動（5分間）
+            // この回数はシステムの要件に応じて調整
+            const errorFile = ".connection_errors";
+            try {
+                const errorCount = 0; // 現在は単純化のため0を使用
+                // ここでファイルからエラーカウントを読み込む実装を追加できる
+
+                if (errorCount >= 5) {
+                    logger.error({ event: "slack_max_errors_reached", count: errorCount }, "Maximum connection errors reached, restarting...");
+                    process.exit(1);
+                }
+            } catch (fileError) {
+                logger.warn({ event: "error_file_read_failed", error: fileError }, "Failed to read error counter file");
+            }
+        }
+    }
+};
+
+// ヘルスチェックを定期的に実行
+setInterval(healthCheck, HEALTH_CHECK_INTERVAL);
+
 (async () => {
-    await app.start();
-    console.log("⚡️ Bolt app is running!");
-    const keyvalues = await getAllKeyValue();
-    console.log({ keyvalues });
+    try {
+        await app.start();
+        console.log("⚡️ Bolt app is running!");
+        const keyvalues = await getAllKeyValue();
+        console.log({ keyvalues });
+    } catch (error) {
+        logger.error(
+            {
+                event: "app_start_error",
+                error,
+            },
+            "Failed to start the Slack app",
+        );
+        // 起動時の失敗は致命的なので、プロセスを終了させてsystemdに再起動させる
+        process.exit(1);
+    }
 })();
 
 const getChannelName = async (channelId: string): Promise<string | null> => {

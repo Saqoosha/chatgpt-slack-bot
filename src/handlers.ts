@@ -173,6 +173,24 @@ export async function handleReactionEvent({ event, say }: SlackEventMiddlewareAr
             },
             "Error translating message",
         );
+        // エラーメッセージをユーザーに通知
+        try {
+            await app.client.chat.postMessage({
+                channel: event.item.channel,
+                thread_ts: event.item.ts,
+                text: `翻訳処理中にエラーが発生しました。(${lang}への翻訳)`,
+            });
+        } catch (postError) {
+            logger.error(
+                {
+                    event: "error_notification_failed",
+                    error: postError,
+                    channelId: event.item.channel,
+                    threadTs: event.item.ts,
+                },
+                "Failed to notify user about translation error",
+            );
+        }
         timer.end({ status: "error", language: lang });
     }
 }
@@ -223,6 +241,22 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
             "Error handling system prompt command",
         );
         timer.end({ status: "error" });
-        throw error;
+        try {
+            await app.client.chat.postEphemeral({
+                channel: command.channel_id,
+                user: command.user_id,
+                text: "システムプロンプトの処理中にエラーが発生しました。",
+            });
+        } catch (postError) {
+            logger.error(
+                {
+                    event: "error_notification_failed",
+                    error: postError,
+                    channelId: command.channel_id,
+                    userId: command.user_id,
+                },
+                "Failed to notify user about error",
+            );
+        }
     }
 }
