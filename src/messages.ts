@@ -112,7 +112,7 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
         );
 
         if (asStream) {
-            return createChatCompletionStream(messages);
+            return createChatCompletionStream(messages, event.files);
         }
         return createChatCompletion(messages);
     } catch (error) {

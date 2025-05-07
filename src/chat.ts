@@ -1,23 +1,25 @@
-import { OpenAI } from "openai";
-import { performance } from "node:perf_hooks";
-import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
+import type { OpenAI as OpenAITypes } from "openai";
+import OpenAI from "openai";
 import { PassThrough } from "node:stream";
 import { config } from "./config";
 import { logger, Timer } from "./logger";
+import type { SlackFile } from "./types";
+import { processImageForOpenAI } from "./imageProcessor";
+import { Readable } from "node:stream";
 
 const openai = new OpenAI({
     apiKey: config.OPENAI_API_KEY,
 });
 
-const MODEL = config.OPENAI_MODEL || "o3-mini";
+// Use a single model for all operations, configurable via environment variable or defaulting to gpt-4.1
+const MODEL = config.OPENAI_MODEL || "gpt-4.1";
 
-export async function createChatCompletion(messages: ChatCompletionMessageParam[]) {
+export async function createChatCompletion(messages: OpenAITypes.ChatCompletionMessageParam[]) {
     const timer = new Timer("openai_completion");
     try {
         const completion = await openai.chat.completions.create({
-            model: MODEL,
+            model: MODEL, // Use MODEL
             messages,
-            // max_tokens: 2000,
         });
         timer.end({ model: MODEL, status: "success" });
         return completion.choices[0].message?.content;
@@ -26,7 +28,7 @@ export async function createChatCompletion(messages: ChatCompletionMessageParam[
             {
                 event: "openai_completion_error",
                 error,
-                model: MODEL,
+                model: MODEL, // Use MODEL
             },
             "Error creating chat completion",
         );
@@ -35,20 +37,69 @@ export async function createChatCompletion(messages: ChatCompletionMessageParam[
     }
 }
 
-export async function createChatCompletionStream(messages: ChatCompletionMessageParam[]) {
-    const timer = new Timer("openai_stream_init");
+export async function createChatCompletionStream(messages: OpenAITypes.ChatCompletionMessageParam[], slackFiles?: SlackFile[]) {
+    let adaptedMessages = messages;
+    let hasImageContent = false;
+
+    if (slackFiles && slackFiles.length > 0) {
+        const imageContentParts: OpenAITypes.ChatCompletionContentPartImage[] = [];
+        for (const slackFile of slackFiles) {
+            // Process each image file to get a Data URL
+            const dataUrl = await processImageForOpenAI(slackFile, config.SLACK_BOT_TOKEN);
+            if (dataUrl) {
+                imageContentParts.push({
+                    type: "image_url",
+                    image_url: { url: dataUrl, detail: "auto" },
+                });
+            }
+        }
+
+        if (imageContentParts.length > 0) {
+            hasImageContent = true;
+            // Add image parts to the last user message or the only user message
+            adaptedMessages = messages.map((msg, index) => {
+                if (msg.role === "user" && (index === messages.length - 1 || messages.length === 1)) {
+                    const existingContent = msg.content;
+                    const newContentParts: OpenAITypes.ChatCompletionContentPart[] = [];
+
+                    if (typeof existingContent === "string" && existingContent.trim() !== "") {
+                        newContentParts.push({ type: "text", text: existingContent });
+                    } else if (Array.isArray(existingContent)) {
+                        // Filter only text parts if msg.content could have been an array of mixed types.
+                        newContentParts.push(
+                            ...existingContent.filter((part): part is OpenAITypes.ChatCompletionContentPartText => part.type === "text"),
+                        );
+                    }
+
+                    newContentParts.push(...imageContentParts);
+
+                    // If, after adding images, there are no text parts at all, add a default one.
+                    if (!newContentParts.some((part) => part.type === "text")) {
+                        newContentParts.unshift({ type: "text", text: "Describe the image(s)." });
+                    }
+
+                    return { ...msg, content: newContentParts };
+                }
+                return msg;
+            });
+        }
+    }
+
+    const timerLabel = `openai_stream_init_${hasImageContent ? "vision_capable" : "text_only"}`;
+    const timer = new Timer(timerLabel);
+
     try {
         const stream = await openai.chat.completions.create({
             model: MODEL,
-            messages,
-            // max_tokens: 2000,
+            messages: adaptedMessages,
             stream: true,
+            // max_tokens: Consider adjusting for vision. OpenAI default is 4096 for gpt-4-turbo. For gpt-4.1, check docs.
         });
-        timer.end({ model: MODEL, status: "success" });
+        timer.end({ model: MODEL, status: "success", hasFiles: hasImageContent });
 
         const passThrough = new PassThrough();
         let firstChunkReceived = false;
-        const streamTimer = new Timer("openai_stream_process");
+        const streamProcessTimer = new Timer(`openai_stream_process_${hasImageContent ? "vision_capable" : "text_only"}`);
 
         (async () => {
             try {
@@ -58,44 +109,64 @@ export async function createChatCompletionStream(messages: ChatCompletionMessage
                         if (!firstChunkReceived) {
                             logger.info(
                                 {
-                                    event: "first_chunk_received",
+                                    event: `first_chunk_received_${hasImageContent ? "vision_capable" : "text_only"}`,
                                     model: MODEL,
                                 },
-                                "Received first chunk from OpenAI",
+                                `Received first chunk from OpenAI (model: ${MODEL})`,
                             );
                             firstChunkReceived = true;
                         }
                         passThrough.write(content);
                     }
                 }
-                streamTimer.end({ model: MODEL, status: "success" });
+                streamProcessTimer.end({ model: MODEL, status: "success" });
                 passThrough.end();
             } catch (error) {
+                // Log stream processing errors
+                const errorContext: Record<string, unknown> = {
+                    model: MODEL,
+                    processingDuringStream: true,
+                };
+                if (error instanceof Error) {
+                    errorContext.errorMessage = error.message;
+                    errorContext.errorStack = error.stack;
+                } else {
+                    errorContext.errorDetails = String(error);
+                }
                 logger.error(
-                    {
-                        event: "stream_processing_error",
-                        error,
-                        model: MODEL,
-                    },
-                    "Error processing stream",
+                    { event: `stream_processing_error_${hasImageContent ? "vision_capable" : "text_only"}`, details: errorContext },
+                    "Error processing stream from OpenAI",
                 );
-                streamTimer.end({ model: MODEL, status: "error" });
-                passThrough.destroy(error as Error);
+                streamProcessTimer.end({ model: MODEL, status: "error" });
+                passThrough.destroy(error instanceof Error ? error : new Error(String(error)));
             }
         })();
 
         return passThrough;
     } catch (error) {
+        // Log initial call errors
+        const errorContext: Record<string, unknown> = {
+            model: MODEL,
+            requestMessages: adaptedMessages,
+        };
+        if (error instanceof Error) {
+            errorContext.errorMessage = error.message;
+            errorContext.errorStack = error.stack;
+        } else {
+            errorContext.errorDetails = String(error);
+        }
+
         logger.error(
-            {
-                event: "stream_initialization_error",
-                error,
-                model: MODEL,
-            },
-            "Error initializing stream",
+            { event: "openai_call_failed", details: errorContext },
+            `Failed to call OpenAI API: ${error instanceof Error ? error.message : String(error)}`,
         );
-        timer.end({ model: MODEL, status: "error" });
-        throw error;
+        // Pass the error to the stream to notify the client
+        const syntheticError = error instanceof Error ? error : new Error(`OpenAI API call failed: ${String(error)}`);
+        return new Readable({
+            read() {
+                this.destroy(syntheticError);
+            },
+        });
     }
 }
 
@@ -113,14 +184,14 @@ export async function determineIntentToReply(userMessage: string): Promise<boole
     const timer = new Timer("determine_intent_to_reply");
     try {
         const completion = await openai.chat.completions.create({
-            model: MODEL, // 通常のモデルで一旦実装（軽量モデルがあれば変更）
+            model: MODEL, // Use MODEL
             messages: [
                 { role: "system", content: INTENT_SYSTEM_PROMPT },
                 { role: "user", content: userMessage },
             ],
-            max_tokens: 50, // JSON形式なので少し余裕を持たせる
-            temperature: 0, // 判断なので創造性は不要
-            response_format: { type: "json_object" }, // JSONモードを有効化
+            max_tokens: 50,
+            temperature: 0,
+            response_format: { type: "json_object" },
         });
         timer.end({ model: MODEL, status: "success" });
         const rawResponse = completion.choices[0].message?.content;
@@ -146,7 +217,7 @@ export async function determineIntentToReply(userMessage: string): Promise<boole
                 {
                     event: "intent_determined_json_parse_error",
                     error: parseError,
-                    model: MODEL,
+                    model: MODEL, // Use MODEL
                     userMessage,
                     rawResponse,
                 },
@@ -159,12 +230,12 @@ export async function determineIntentToReply(userMessage: string): Promise<boole
             {
                 event: "determine_intent_error",
                 error,
-                model: MODEL,
+                model: MODEL, // Use MODEL
                 userMessage,
             },
             "Error determining intent to reply",
         );
         timer.end({ model: MODEL, status: "error" });
-        return false; // エラー時は念のため応答しないようにfalseを返す
+        return false;
     }
 }

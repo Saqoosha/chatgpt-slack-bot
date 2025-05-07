@@ -8,6 +8,7 @@ export interface BaseMessageEvent {
     channel_type: "im" | "channel" | "group";
     thread_ts?: string;
     subtype?: string;
+    files?: SlackFile[];
 }
 
 export interface SlackReply {
@@ -38,4 +39,42 @@ declare global {
     namespace NodeJS {
         interface ProcessEnv extends Env {}
     }
+}
+
+export interface SlackFile {
+    id: string;
+    created: number;
+    timestamp: number;
+    name: string;
+    title: string;
+    mimetype: string;
+    filetype: string;
+    pretty_type: string;
+    user: string;
+    editable: boolean;
+    size: number;
+    mode: string;
+    is_external: boolean;
+    external_type: string;
+    is_public: boolean;
+    public_url_shared: boolean;
+    display_as_bot: boolean;
+    username: string;
+    url_private: string;
+    url_private_download: string;
+    thumb_64?: string;
+    thumb_80?: string;
+    thumb_160?: string;
+    thumb_360?: string;
+    thumb_480?: string;
+    thumb_720?: string;
+    thumb_960?: string;
+    thumb_1024?: string;
+    permalink: string;
+    permalink_public?: string;
+    channels: string[];
+    groups: string[];
+    ims: string[];
+    shares?: object;
+    has_rich_preview?: boolean;
 }

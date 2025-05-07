@@ -10,31 +10,53 @@ interface LogEntry {
     threadTs?: string;
     model?: string;
     error?: unknown;
+    errorMessage?: string;
     messageCount?: number;
     totalTokens?: number;
+    details?: Record<string, unknown>;
     [key: string]: unknown;
 }
 
 // ログメッセージのフォーマット関数
 function formatLogMessage(log: LogEntry): string {
-    const { event, duration, status, phase, channelId, threadTs, model, error, messageCount, totalTokens } = log;
+    const { event, duration, status, phase, channelId, threadTs, model, error, errorMessage, messageCount, totalTokens, details } = log;
     const parts = [];
 
-    // イベント名（必須）
-    parts.push(event);
+    if (event) parts.push(`event: ${event}`);
+    else parts.push("event: (missing)");
 
-    // 処理時間（存在する場合）
-    if (duration) parts.push(duration);
+    // Optional duration
+        parts.push(`duration: ${duration}`);
 
-    // オプション項目（存在する場合のみ追加）
-    if (status) parts.push(`status: ${status}`);
+    // Other optional parts from original logic
+        parts.push(`status: ${status}`);
     if (phase) parts.push(`phase: ${phase}`);
-    if (channelId) parts.push(`ch: ${channelId.slice(-8)}`); // 最後の8文字のみ表示
-    if (threadTs) parts.push(`thread: ${threadTs.slice(-8)}`); // 最後の8文字のみ表示
+    if (channelId) parts.push(`ch: ${channelId.slice(-8)}`);
+    if (threadTs) parts.push(`thread: ${threadTs.slice(-8)}`);
     if (model) parts.push(`model: ${model}`);
     if (messageCount) parts.push(`msgs: ${messageCount}`);
     if (totalTokens) parts.push(`tokens: ${totalTokens}`);
-    if (error) parts.push(`error: ${error}`);
+
+    const errorMessageToDisplay = errorMessage || (error ? String(error) : undefined);
+    if (errorMessageToDisplay) {
+        parts.push(`errMsg: ${errorMessageToDisplay}`);
+    } else {
+        parts.push("errMsg: (missing)");
+    }
+
+    if (details && Object.keys(details).length > 0) {
+        try {
+            parts.push(`detailsObj: ${JSON.stringify(details)}`);
+        } catch (e) {
+            parts.push("detailsObj: (failed to stringify)");
+        }
+    } else if (details) {
+        parts.push("detailsObj: (empty object)");
+    } else {
+        parts.push("detailsObj: (undefined)");
+    }
+
+    parts.push(`rawLogKeys: ${Object.keys(log).join(",")}`);
 
     return parts.join(" | ");
 }
@@ -48,7 +70,7 @@ const devConfig = {
             translateTime: "HH:MM:ss.l",
             ignore: "pid,hostname",
             messageFormat: "{msg}",
-            singleLine: true,
+            singleLine: false,
         },
     },
     formatters: {
