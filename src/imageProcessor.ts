@@ -7,6 +7,27 @@ import type { SlackFile } from "./types"; // Assuming types.ts is in the same di
 const MAX_IMAGE_DIMENSION = 2048; // Max dimension for OpenAI Vision (long edge)
 // const MIN_IMAGE_DIMENSION_SHORT_EDGE = 768; // Recommended min dimension for short edge if resizing - jimpでは直接制御しづらいので一旦コメントアウト
 
+// Define a custom error class for download errors
+export class DownloadError extends Error {
+    details: {
+        url?: string;
+        errorMessage: string;
+        status?: number;
+        dataPreview?: string;
+        data?: unknown;
+        headers?: unknown;
+        stack?: string;
+    };
+
+    constructor(message: string, details: DownloadError["details"]) {
+        super(message);
+        this.name = "DownloadError";
+        this.details = details;
+        // Set the prototype explicitly.
+        Object.setPrototypeOf(this, DownloadError.prototype);
+    }
+}
+
 /**
  * Downloads an image from a given URL using a Slack bot token for authorization.
  * Uses axios for HTTP requests.
@@ -26,14 +47,26 @@ export async function downloadImage(url: string, token: string): Promise<Buffer>
 
         const contentType = response.headers["content-type"];
         if (contentType && !contentType.startsWith("image/")) {
-            logger.warn(
-                { event: "image_download_unexpected_content_type", url, contentType },
-                "Downloaded content type is not an image. Logging beginning of response.",
-            );
+            let preview = "(binary data or too large to preview)";
             if (response.data instanceof ArrayBuffer && response.data.byteLength > 0) {
-                const firstKiloByte = Buffer.from(response.data.slice(0, Math.min(response.data.byteLength, 1024))).toString("utf-8");
-                logger.warn({ event: "image_download_html_content_preview_success", dataPreview: firstKiloByte });
+                // Attempt to get a UTF-8 string preview, limit to 1KB
+                try {
+                    preview = Buffer.from(response.data.slice(0, Math.min(response.data.byteLength, 1024))).toString("utf-8");
+                } catch (e) {
+                    preview = "(failed to decode as UTF-8)";
+                }
             }
+            logger.warn(
+                {
+                    event: "image_download_unexpected_content_type",
+                    url,
+                    contentType: contentType || "(unknown)", // Ensure contentType is logged
+                    dataPreview: preview, // Log the preview data
+                },
+                "Downloaded content type is not an image.",
+            );
+            // No longer logging image_download_html_content_preview_success separately
+            // as the preview is now part of image_download_unexpected_content_type
         }
 
         logger.info({ event: "image_download_success", url, size: response.data.byteLength }, "Image downloaded successfully");
@@ -54,6 +87,7 @@ export async function downloadImage(url: string, token: string): Promise<Buffer>
         if (axios.isAxiosError(error) && error.response) {
             errorDetails.errorMessage = `Failed to download image: ${error.response.status} ${error.response.statusText}`;
             errorDetails.status = error.response.status;
+            errorDetails.url = url; // Ensure URL is part of error details
 
             if (error.response.data) {
                 let preview = "";
@@ -76,20 +110,26 @@ export async function downloadImage(url: string, token: string): Promise<Buffer>
             logger.error(
                 {
                     event: "image_download_failed_axios",
-                    url,
+                    url, // Ensure URL is logged
                     status: error.response.status,
                     dataPreview: errorDetails.dataPreview,
+                    errorMessage: errorDetails.errorMessage, // Log the composed error message
                 },
                 errorDetails.errorMessage,
             );
         } else if (error instanceof Error) {
             errorDetails.errorMessage = error.message;
             errorDetails.stack = error.stack;
-            logger.error({ event: "image_download_exception", url, error: error.message, stack: error.stack }, "Exception during image download");
+            errorDetails.url = url; // Ensure URL is part of error details
+            logger.error(
+                { event: "image_download_exception", url, error: error.message, stack: error.stack, details: errorDetails },
+                "Exception during image download",
+            );
         } else {
-            logger.error({ event: "image_download_unknown_exception", url, error }, "Unknown exception during image download");
+            errorDetails.url = url; // Ensure URL is part of error details
+            logger.error({ event: "image_download_unknown_exception", url, error, details: errorDetails }, "Unknown exception during image download");
         }
-        throw new Error(errorDetails.errorMessage);
+        throw new DownloadError(`Download failed for ${url}: ${errorDetails.errorMessage}`, errorDetails);
     }
 }
 
