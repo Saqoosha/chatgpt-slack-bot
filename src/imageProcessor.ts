@@ -1,32 +1,11 @@
 import axios from "axios"; // Using axios instead of node-fetch
 // import * as Jimp from "jimp"; // Remove Jimp
 import photon from "@silvia-odwyer/photon-node"; // Add Photon
-import { logger } from "./logger"; // Assuming logger is in the same directory or adjust path
+import { logger, AppError } from "./logger"; // Import AppError instead of DownloadError
 import type { SlackFile } from "./types"; // Assuming types.ts is in the same directory or adjust path
 
 const MAX_IMAGE_DIMENSION = 2048; // Max dimension for OpenAI Vision (long edge)
 // const MIN_IMAGE_DIMENSION_SHORT_EDGE = 768; // Recommended min dimension for short edge if resizing - jimpでは直接制御しづらいので一旦コメントアウト
-
-// Define a custom error class for download errors
-export class DownloadError extends Error {
-    details: {
-        url?: string;
-        errorMessage: string;
-        status?: number;
-        dataPreview?: string;
-        data?: unknown;
-        headers?: unknown;
-        stack?: string;
-    };
-
-    constructor(message: string, details: DownloadError["details"]) {
-        super(message);
-        this.name = "DownloadError";
-        this.details = details;
-        // Set the prototype explicitly.
-        Object.setPrototypeOf(this, DownloadError.prototype);
-    }
-}
 
 /**
  * Downloads an image from a given URL using a Slack bot token for authorization.
@@ -36,7 +15,7 @@ export class DownloadError extends Error {
  * @returns A Promise that resolves to a Buffer containing the image data.
  */
 export async function downloadImage(url: string, token: string): Promise<Buffer> {
-    logger.debug({ event: "image_download_start", url }, "Attempting to download image");
+    logger.info({ event: "image_download_start", url: url }, "Attempting to download image");
     try {
         const response = await axios.get(url, {
             headers: {
@@ -59,9 +38,9 @@ export async function downloadImage(url: string, token: string): Promise<Buffer>
             logger.warn(
                 {
                     event: "image_download_unexpected_content_type",
-                    url,
-                    contentType: contentType || "(unknown)", // Ensure contentType is logged
-                    dataPreview: preview, // Log the preview data
+                    url: url,
+                    contentType: contentType || "(unknown)",
+                    dataPreview: preview,
                 },
                 "Downloaded content type is not an image.",
             );
@@ -69,11 +48,11 @@ export async function downloadImage(url: string, token: string): Promise<Buffer>
             // as the preview is now part of image_download_unexpected_content_type
         }
 
-        logger.info({ event: "image_download_success", url, size: response.data.byteLength }, "Image downloaded successfully");
+        logger.info({ event: "image_download_success", url: url, size: response.data.byteLength }, "Image downloaded successfully");
         return Buffer.from(response.data);
     } catch (error: unknown) {
         const errorDetails: {
-            url: string;
+            url?: string;
             errorMessage: string;
             status?: number;
             dataPreview?: string;
@@ -110,26 +89,28 @@ export async function downloadImage(url: string, token: string): Promise<Buffer>
             logger.error(
                 {
                     event: "image_download_failed_axios",
-                    url, // Ensure URL is logged
+                    url: url,
                     status: error.response.status,
-                    dataPreview: errorDetails.dataPreview,
-                    errorMessage: errorDetails.errorMessage, // Log the composed error message
+                    // dataPreview: errorDetails.dataPreview, // This will be in details of AppError
+                    // errorMessage: errorDetails.errorMessage, // This will be message of AppError
                 },
-                errorDetails.errorMessage,
+                `Axios error during download: ${errorDetails.errorMessage}`, // Main message for logger
             );
         } else if (error instanceof Error) {
             errorDetails.errorMessage = error.message;
             errorDetails.stack = error.stack;
             errorDetails.url = url; // Ensure URL is part of error details
             logger.error(
-                { event: "image_download_exception", url, error: error.message, stack: error.stack, details: errorDetails },
+                { event: "image_download_exception", url: url, origErrorName: error.name, origErrorMessage: error.message /*, stack: error.stack*/ },
                 "Exception during image download",
             );
         } else {
-            errorDetails.url = url; // Ensure URL is part of error details
-            logger.error({ event: "image_download_unknown_exception", url, error, details: errorDetails }, "Unknown exception during image download");
+            errorDetails.errorMessage = String(error); // Ensure it's a string
+            errorDetails.url = url;
+            logger.error({ event: "image_download_unknown_exception", url: url /*, errorObject: error*/ }, "Unknown exception during image download");
         }
-        throw new DownloadError(`Download failed for ${url}: ${errorDetails.errorMessage}`, errorDetails);
+        // Use AppError, passing all collected details
+        throw new AppError(`Download failed for ${url}: ${errorDetails.errorMessage}`, errorDetails);
     }
 }
 
@@ -275,16 +256,30 @@ export function encodeImageToBase64(imageBuffer: Buffer, mimeType: string): stri
  * @returns A Promise resolving to the Base64 encoded Data URL string, or null if processing fails or not an image.
  */
 export async function processImageForOpenAI(slackFile: SlackFile, slackBotToken: string): Promise<string | null> {
+    logger.info(
+        {
+            event: "process_image_start",
+            fileId: slackFile.id,
+            fileName: slackFile.name,
+            url: slackFile.url_private_download,
+        },
+        "Starting image processing for OpenAI",
+    );
+
     if (!slackFile.url_private_download || !slackFile.mimetype?.startsWith("image/")) {
         logger.info(
-            { event: "process_image_skipped_not_image", fileId: slackFile.id, mimeType: slackFile.mimetype },
+            {
+                event: "process_image_skipped_not_image",
+                fileId: slackFile.id,
+                mimeType: slackFile.mimetype,
+                url: slackFile.url_private_download,
+            },
             "Skipping file processing, not a downloadable image or not an image mimetype.",
         );
         return null;
     }
 
     try {
-        logger.info({ event: "process_image_start", fileId: slackFile.id, fileName: slackFile.name }, "Starting image processing for OpenAI");
         let imageBuffer = await downloadImage(slackFile.url_private_download, slackBotToken);
         const originalMimeType = slackFile.mimetype; // Store original mimetype
 
@@ -299,7 +294,18 @@ export async function processImageForOpenAI(slackFile: SlackFile, slackBotToken:
         );
         return dataUrl;
     } catch (error) {
-        logger.error({ event: "process_image_failed", fileId: slackFile.id, fileName: slackFile.name, error }, "Failed to process image for OpenAI");
-        return null; // Return null or rethrow, depending on desired error handling
+        // Log the error. If it's an AppError, its details will be logged by our logger.
+        // If it's a different error, its message will be logged.
+        const eventName = error instanceof AppError ? "process_image_app_error" : "process_image_unknown_error";
+        logger.error(
+            {
+                event: eventName,
+                fileId: slackFile.id,
+                fileName: slackFile.name,
+                // error: error, // The logger will stringify this if it's part of details in AppError or top-level
+            },
+            `Failed to process image for OpenAI: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return null;
     }
 }
