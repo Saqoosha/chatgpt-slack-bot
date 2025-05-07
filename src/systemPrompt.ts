@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import { getChannelName } from "./slack";
 import { readKeyValue, writeKeyValue } from "./sskvs";
 import { logger, Timer } from "./logger";
+import { config } from "./config";
 
 // システムプロンプトのキャッシュ
 interface SystemPromptCache {
@@ -12,6 +13,9 @@ interface SystemPromptCache {
 
 const systemPromptCache = new Map<string, SystemPromptCache>();
 const SYSTEM_PROMPT_CACHE_TTL = 1000 * 60 * 60; // 1時間
+
+// Botの識別情報
+const BOT_IDENTITY_INFO = `あなたは会話の中で<@${config.SLACK_BOT_USER_ID}>と呼ばれることがあります。これはSlack上でのあなた自身のIDです。このIDでメンションされた場合は、それがあなた自身へのメンションだと認識してください。また、「ChatGPT」と呼ばれた場合も、それはあなた自身のことを指していると理解してください。`;
 
 // キャッシュキーを生成
 function createCacheKey(channelId: string, channelName: string): string {
@@ -37,7 +41,7 @@ export async function getSystemPrompt(channelId: string): Promise<string> {
         const now = Date.now();
         if (cached && now - cached.timestamp < SYSTEM_PROMPT_CACHE_TTL) {
             timer.end({ status: "cache_hit", channelId });
-            return cached.prompt;
+            return addBotIdentityInfo(cached.prompt);
         }
 
         // キャッシュミスの場合のみチャンネル名を取得
@@ -50,7 +54,7 @@ export async function getSystemPrompt(channelId: string): Promise<string> {
             // 新しい形式にマイグレート
             systemPromptCache.set(channelId, legacyCached);
             timer.end({ status: "legacy_cache_hit", channelId });
-            return legacyCached.prompt;
+            return addBotIdentityInfo(legacyCached.prompt);
         }
 
         // SSKVSから取得
@@ -67,12 +71,19 @@ export async function getSystemPrompt(channelId: string): Promise<string> {
         systemPromptCache.set(key, cacheEntry); // 後方互換性のため
 
         timer.end({ status: "cache_miss", channelId });
-        return prompt;
+        return addBotIdentityInfo(prompt);
     } catch (error) {
         logger.error({ event: "get_system_prompt_error", error, channelId }, "Error fetching system prompt");
         timer.end({ status: "error", channelId });
-        return "";
+        return BOT_IDENTITY_INFO; // エラー時でもBot ID情報は返す
     }
+}
+
+// ユーザー設定のシステムプロンプトにBot識別情報を追加する
+function addBotIdentityInfo(userPrompt: string): string {
+    if (!userPrompt) return BOT_IDENTITY_INFO;
+    if (userPrompt.includes(BOT_IDENTITY_INFO)) return userPrompt; // すでに含まれている場合は追加しない
+    return `${userPrompt}\n\n${BOT_IDENTITY_INFO}`;
 }
 
 export async function updateSystemPrompt(channelId: string, text: string): Promise<void> {
