@@ -29,11 +29,18 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
 
     // ボットへの呼びかけとみなす条件チェック
     const isBotMentioned = (text?: string): boolean => {
-        if (!text) return false;
-        // 明示的なメンション（文中でもOK）
-        if (text.includes(botMention)) return true;
-        // 「ChatGPT」という言葉を含む
-        if (text.toLowerCase().includes("chatgpt")) return true;
+        if (!text) {
+            return false;
+        }
+        if (text.includes(botMention)) {
+            // 明示的なメンション（文中でもOK）
+            return true;
+        }
+        // 「ChatGPT」という言葉を含む (スペースや大文字・小文字を許容する正規表現)
+        const chatGptRegex = /chat\s*gpt/i;
+        if (chatGptRegex.test(text)) {
+            return true;
+        }
         return false;
     };
 
