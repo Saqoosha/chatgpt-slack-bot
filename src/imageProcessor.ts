@@ -1,10 +1,11 @@
 import axios from "axios"; // Using axios instead of node-fetch
-import sharp from "sharp";
+// import * as Jimp from "jimp"; // Remove Jimp
+import photon from "@silvia-odwyer/photon-node"; // Add Photon
 import { logger } from "./logger"; // Assuming logger is in the same directory or adjust path
 import type { SlackFile } from "./types"; // Assuming types.ts is in the same directory or adjust path
 
 const MAX_IMAGE_DIMENSION = 2048; // Max dimension for OpenAI Vision (long edge)
-const MIN_IMAGE_DIMENSION_SHORT_EDGE = 768; // Recommended min dimension for short edge if resizing
+// const MIN_IMAGE_DIMENSION_SHORT_EDGE = 768; // Recommended min dimension for short edge if resizing - jimpでは直接制御しづらいので一旦コメントアウト
 
 /**
  * Downloads an image from a given URL using a Slack bot token for authorization.
@@ -93,66 +94,115 @@ export async function downloadImage(url: string, token: string): Promise<Buffer>
 }
 
 /**
- * Resizes an image buffer using sharp.
- * It aims to keep the image within MAX_IMAGE_DIMENSION on its longest side,
- * and tries to ensure the shorter side is at least MIN_IMAGE_DIMENSION_SHORT_EDGE if aspect ratio allows.
+ * Resizes an image buffer using Photon.
+ * It aims to keep the image within MAX_IMAGE_DIMENSION on its longest side.
+ * Also logs the duration of the resize operation.
  * @param imageBuffer The buffer containing the image data.
- * @returns A Promise that resolves to a Buffer of the resized image.
+ * @param originalMimeType The original MIME type of the image (e.g., "image/jpeg", "image/png").
+ * @returns A Promise that resolves to an object containing the resized image buffer and its MIME type.
  */
-export async function resizeImage(imageBuffer: Buffer): Promise<Buffer> {
-    logger.debug({ event: "image_resize_start", originalSize: imageBuffer.length }, "Attempting to resize image");
+export async function resizeImage(imageBuffer: Buffer, originalMimeType: string): Promise<{ resizedBuffer: Buffer; mimeType: string }> {
+    const startTime = performance.now();
+    logger.debug(
+        { event: "image_resize_photon_start", originalSize: imageBuffer.length, mimeType: originalMimeType },
+        "Attempting to resize image with Photon",
+    );
     try {
-        const image = sharp(imageBuffer);
-        const metadata = await image.metadata();
+        let pImage = photon.PhotonImage.new_from_byteslice(imageBuffer);
+        const currentWidth = pImage.get_width();
+        const currentHeight = pImage.get_height();
 
-        const resizeOptions: sharp.ResizeOptions = {}; // Changed to const
+        let newWidth = currentWidth;
+        let newHeight = currentHeight;
 
-        if (metadata.width && metadata.height) {
-            const isWidthLonger = metadata.width > metadata.height;
-            const longEdge = isWidthLonger ? metadata.width : metadata.height;
-            const shortEdge = isWidthLonger ? metadata.height : metadata.width;
+        const isWidthLonger = currentWidth > currentHeight;
+        const longEdge = isWidthLonger ? currentWidth : currentHeight;
 
-            if (longEdge > MAX_IMAGE_DIMENSION) {
-                if (isWidthLonger) {
-                    resizeOptions.width = MAX_IMAGE_DIMENSION;
-                } else {
-                    resizeOptions.height = MAX_IMAGE_DIMENSION;
-                }
-                // After constraining the long edge, check if the short edge needs to be upscaled (if it's too small)
-                // This part might be complex if we strictly adhere to MIN_IMAGE_DIMENSION_SHORT_EDGE
-                // For now, just cap the max dimension.
+        if (longEdge > MAX_IMAGE_DIMENSION) {
+            if (isWidthLonger) {
+                newWidth = MAX_IMAGE_DIMENSION;
+                newHeight = Math.round((currentHeight * MAX_IMAGE_DIMENSION) / currentWidth); // Maintain aspect ratio
+            } else {
+                newHeight = MAX_IMAGE_DIMENSION;
+                newWidth = Math.round((currentWidth * MAX_IMAGE_DIMENSION) / currentHeight); // Maintain aspect ratio
             }
-        }
+            // Photon resize might not return a new PhotonImage, but modify in place or need specific handling.
+            // Assuming resize modifies pImage or returns a new one that should be reassigned.
+            // The resize function in photon-node is a global function, not a method of PhotonImage.
+            const resizedPhotonImage = photon.resize(pImage, newWidth, newHeight, photon.SamplingFilter.CatmullRom);
+            pImage = resizedPhotonImage; // Ensure pImage refers to the resized image for get_bytes_...
 
-        // If no resize options were set (image is smaller than MAX_IMAGE_DIMENSION)
-        // or to apply the determined resize options
-        if (Object.keys(resizeOptions).length > 0) {
-            const resizedBuffer = await image.resize(resizeOptions).toBuffer();
+            let outputBufferBytes: Uint8Array;
+            if (originalMimeType.includes("jpeg") || originalMimeType.includes("jpg")) {
+                outputBufferBytes = pImage.get_bytes_jpeg(90); // Quality 0-100
+            } else if (originalMimeType.includes("png")) {
+                outputBufferBytes = pImage.get_bytes();
+            } else {
+                // Fallback or error for unsupported types for Photon output
+                logger.warn(
+                    { event: "image_resize_photon_unsupported_output", mimeType: originalMimeType },
+                    "Unsupported MIME type for Photon output, attempting JPEG.",
+                );
+                outputBufferBytes = pImage.get_bytes_jpeg(90); // Default to JPEG if unsure
+            }
+            const resizedBuffer = Buffer.from(outputBufferBytes);
+
+            const endTime = performance.now();
+            const duration = endTime - startTime;
             logger.info(
-                { event: "image_resize_success", originalSize: imageBuffer.length, newSize: resizedBuffer.length, options: resizeOptions },
-                "Image resized successfully",
+                {
+                    event: "image_resize_photon_success",
+                    originalSize: imageBuffer.length,
+                    newSize: resizedBuffer.length,
+                    originalDimensions: { width: currentWidth, height: currentHeight },
+                    newDimensions: { width: pImage.get_width(), height: pImage.get_height() },
+                    duration: `${duration.toFixed(1)}ms`,
+                    mimeType: originalMimeType,
+                },
+                "Image resized successfully with Photon",
             );
-            return resizedBuffer;
+            // If we defaulted to JPEG, the mimeType should reflect that.
+            const finalMimeType =
+                originalMimeType.includes("jpeg") || originalMimeType.includes("jpg") || originalMimeType.includes("png")
+                    ? originalMimeType
+                    : "image/jpeg";
+            return { resizedBuffer, mimeType: finalMimeType };
         }
-        logger.info({ event: "image_resize_skipped", originalSize: imageBuffer.length }, "Image resizing skipped (already within limits)");
-        return imageBuffer; // Return original buffer if no resize needed
+        // No resize needed
+        const endTime = performance.now();
+        const duration = endTime - startTime;
+        logger.info(
+            {
+                event: "image_resize_photon_skipped",
+                originalSize: imageBuffer.length,
+                dimensions: { width: currentWidth, height: currentHeight },
+                duration: `${duration.toFixed(1)}ms`,
+                mimeType: originalMimeType,
+            },
+            "Image resizing skipped (already within limits) with Photon",
+        );
+        return { resizedBuffer: imageBuffer, mimeType: originalMimeType };
     } catch (error) {
-        let errorMessage = "Unknown error during image resize";
+        const endTime = performance.now();
+        const duration = endTime - startTime;
+        let errorMessage = "Unknown error during image resize with Photon";
         let errorStack: string | undefined;
         if (error instanceof Error) {
             errorMessage = error.message;
             errorStack = error.stack;
         }
         logger.error({
-            event: "image_resize_exception",
+            event: "image_resize_photon_exception",
             errorMessage: errorMessage,
             details: {
-                message: "Exception during image resize",
+                message: "Exception during image resize with Photon",
                 originalSize: imageBuffer.length,
                 stack: errorStack,
+                mimeType: originalMimeType,
             },
+            duration: `${duration.toFixed(1)}ms`,
         });
-        throw error;
+        throw error; // Re-throw the error to be caught by the caller
     }
 }
 
@@ -196,10 +246,13 @@ export async function processImageForOpenAI(slackFile: SlackFile, slackBotToken:
     try {
         logger.info({ event: "process_image_start", fileId: slackFile.id, fileName: slackFile.name }, "Starting image processing for OpenAI");
         let imageBuffer = await downloadImage(slackFile.url_private_download, slackBotToken);
+        const originalMimeType = slackFile.mimetype; // Store original mimetype
 
-        imageBuffer = await resizeImage(imageBuffer);
+        // Resize image
+        const { resizedBuffer, mimeType: finalMimeType } = await resizeImage(imageBuffer, originalMimeType);
+        imageBuffer = resizedBuffer; // Update imageBuffer with the resized one
 
-        const dataUrl = encodeImageToBase64(imageBuffer, slackFile.mimetype);
+        const dataUrl = encodeImageToBase64(imageBuffer, finalMimeType); // Use the mimeType from resizeImage result
         logger.info(
             { event: "process_image_success", fileId: slackFile.id, dataUrlLength: dataUrl.length },
             "Image processed successfully for OpenAI",
