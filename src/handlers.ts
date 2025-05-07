@@ -164,11 +164,10 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
             return true;
         }
 
-        // 現在のメッセージがボットへの呼びかけなら応答 (最優先)
-        if (isBotMentioned(currentEvent.text) || (currentEvent.files && currentEvent.files.length > 0)) {
+        if (isBotMentioned(currentEvent.text)) {
             logger.debug(
-                { event: "should_respond_check", reason: "current_message_mentioned_or_has_files", responds: true },
-                "Responding due to current message mention or file attachment",
+                { event: "should_respond_check", reason: "current_message_mentioned", responds: true },
+                "Responding due to current message mention",
             );
             return true;
         }
@@ -177,29 +176,26 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
         if (currentEvent.channel_type === "channel" || currentEvent.channel_type === "group") {
             if (currentEvent.thread_ts) {
                 if (await wasBotMentionedInThreadHistory(currentEvent.channel, currentEvent.thread_ts)) {
-                    if (
-                        (currentEvent.text && (await determineIntentToReply(currentEvent.text))) ||
-                        (currentEvent.files && currentEvent.files.length > 0)
-                    ) {
+                    if (currentEvent.text && (await determineIntentToReply(currentEvent.text))) {
                         logger.info(
                             {
                                 event: "should_respond_check",
-                                reason: "intent_to_reply_in_thread_with_file",
+                                reason: "intent_to_reply_in_thread",
                                 channelId: currentEvent.channel,
                                 threadTs: currentEvent.thread_ts,
                                 responds: true,
                             },
-                            "Intent to reply confirmed by LLM in mentioned thread (with file or text).",
+                            "Intent to reply confirmed by LLM in mentioned thread.",
                         );
                         return true;
                     }
                 }
             }
             const memberCount = await getChannelMemberCount(currentEvent.channel);
-            if (memberCount === 2 && (currentEvent.text || (currentEvent.files && currentEvent.files.length > 0))) {
+            if (memberCount === 2 && currentEvent.text) {
                 logger.debug(
                     { event: "should_respond_check", reason: "small_channel_with_content", memberCount, responds: true },
-                    "Responding due to small channel size with content (text or file)",
+                    "Responding due to small channel size with content",
                 );
                 return true;
             }
