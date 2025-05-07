@@ -17,8 +17,8 @@ import { logger, Timer } from "./logger";
 export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArgs<"message">) {
     const timer = new Timer("handle_message");
 
-    // Ignore messages with subtypes (like message_changed, etc.)
     if ("subtype" in event) {
+        // Ignore messages with subtypes (like message_changed, etc.)
         return;
     }
 
@@ -27,12 +27,43 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
 
     const botMention = `<@${config.SLACK_BOT_USER_ID}>`;
 
-    if (
-        messageEvent.channel_type === "im" ||
-        ((messageEvent.channel_type === "channel" || messageEvent.channel_type === "group") &&
-            (await getChannelMemberCount(messageEvent.channel)) === 2 &&
-            !messageEvent.text?.startsWith(botMention))
-    ) {
+    // ボットへの呼びかけとみなす条件チェック
+    const isBotMentioned = (text?: string): boolean => {
+        if (!text) return false;
+        // 明示的なメンション（文中でもOK）
+        if (text.includes(botMention)) return true;
+        // 「ChatGPT」という言葉を含む
+        if (text.toLowerCase().includes("chatgpt")) return true;
+        return false;
+    };
+
+    // チャンネルタイプ別の応答条件を判定
+    const shouldRespondToMessage = async (): Promise<boolean> => {
+        // DMは常に応答
+        if (messageEvent.channel_type === "im") {
+            return true;
+        }
+
+        // チャンネルまたはグループの場合
+        if (messageEvent.channel_type === "channel" || messageEvent.channel_type === "group") {
+            // ボットへの呼びかけがある場合は応答
+            if (isBotMentioned(messageEvent.text)) {
+                return true;
+            }
+
+            // 少人数（ボット+1人）チャンネルの場合も応答
+            const memberCount = await getChannelMemberCount(messageEvent.channel);
+            if (memberCount === 2) {
+                return true;
+            }
+        }
+
+        // 上記以外は応答しない
+        return false;
+    };
+
+    if (await shouldRespondToMessage()) {
+        // 応答条件を判定
         try {
             const stream = (await processMessage(messageEvent, true)) as Readable;
             timer.end({ phase: "message_processing", channelId: messageEvent.channel });
