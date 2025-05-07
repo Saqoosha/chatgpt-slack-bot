@@ -5,7 +5,7 @@ import type { BaseMessageEvent, SystemPromptCommand } from "./types";
 import { getErrorMessage } from "./errors";
 import { processMessage } from "./messages";
 import { sendReplyWithStream } from "./slack";
-import { createChatCompletion } from "./chat";
+import { createChatCompletion, determineIntentToReply } from "./chat";
 import { getChannelMemberCount, getChannelName } from "./slack";
 import { readKeyValue } from "./sskvs";
 import { app } from "./app";
@@ -32,8 +32,8 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
         if (!text) {
             return false;
         }
+        // 明示的なメンション（文中でもOK）
         if (text.includes(botMention)) {
-            // 明示的なメンション（文中でもOK）
             return true;
         }
         // 「ChatGPT」という言葉を含む (スペースや大文字・小文字を許容する正規表現)
@@ -44,32 +44,100 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
         return false;
     };
 
+    // スレッド内で過去にユーザーからのメンションがあったか確認する関数
+    const wasBotMentionedInThreadHistory = async (channelId: string, threadTs: string): Promise<boolean> => {
+        const threadTimer = new Timer("fetch_thread_replies_for_mention_check");
+        try {
+            const replies = await app.client.conversations.replies({
+                channel: channelId,
+                ts: threadTs,
+            });
+            threadTimer.end({ channelId, threadTs, status: "success" });
+
+            if (replies.messages && replies.messages.length > 0) {
+                for (const message of replies.messages) {
+                    // ユーザーからのメッセージで、かつボットへのメンションがあるか確認
+                    if (message.user && message.user !== config.SLACK_BOT_USER_ID && isBotMentioned(message.text)) {
+                        logger.info(
+                            { event: "thread_mention_check", reason: "mentioned_in_thread_history", channelId, threadTs, responds: true },
+                            "Bot was mentioned in thread history by a user.",
+                        );
+                        return true;
+                    }
+                }
+            }
+        } catch (error) {
+            logger.error(
+                {
+                    event: "fetch_thread_replies_error_mention_check",
+                    error,
+                    channelId,
+                    threadTs,
+                },
+                "Error fetching thread replies for mention check",
+            );
+            threadTimer.end({ channelId, threadTs, status: "error" });
+        }
+        return false;
+    };
+
     // チャンネルタイプ別の応答条件を判定
-    const shouldRespondToMessage = async (): Promise<boolean> => {
+    const shouldRespondToMessage = async (currentEvent: BaseMessageEvent): Promise<boolean> => {
         // DMは常に応答
-        if (messageEvent.channel_type === "im") {
+        if (currentEvent.channel_type === "im") {
+            logger.debug({ event: "should_respond_check", channelType: currentEvent.channel_type, responds: true }, "Responding to IM");
+            return true;
+        }
+
+        // 現在のメッセージがボットへの呼びかけなら応答 (最優先)
+        if (isBotMentioned(currentEvent.text)) {
+            logger.debug(
+                { event: "should_respond_check", reason: "current_message_mentioned", responds: true },
+                "Responding due to current message mention",
+            );
             return true;
         }
 
         // チャンネルまたはグループの場合
-        if (messageEvent.channel_type === "channel" || messageEvent.channel_type === "group") {
-            // ボットへの呼びかけがある場合は応答
-            if (isBotMentioned(messageEvent.text)) {
-                return true;
+        if (currentEvent.channel_type === "channel" || currentEvent.channel_type === "group") {
+            // スレッド内で、過去に一度でもユーザーからのメンションがあれば応答
+            if (currentEvent.thread_ts) {
+                if (await wasBotMentionedInThreadHistory(currentEvent.channel, currentEvent.thread_ts)) {
+                    // スレッドメンションあり、かつ最新メッセージの意図がボット宛なら応答
+                    if (currentEvent.text && (await determineIntentToReply(currentEvent.text))) {
+                        logger.info(
+                            {
+                                event: "should_respond_check",
+                                reason: "intent_to_reply_in_thread",
+                                channelId: currentEvent.channel,
+                                threadTs: currentEvent.thread_ts,
+                                responds: true,
+                            },
+                            "Intent to reply confirmed by LLM in mentioned thread.",
+                        );
+                        return true;
+                    }
+                }
             }
 
+            // 上記スレッドチェックで応答が決まらなかった場合
             // 少人数（ボット+1人）チャンネルの場合も応答
-            const memberCount = await getChannelMemberCount(messageEvent.channel);
+            // (この条件は、スレッド外のメッセージや、スレッドだがまだ誰もメンションしてない場合に適用される)
+            const memberCount = await getChannelMemberCount(currentEvent.channel);
             if (memberCount === 2) {
+                logger.debug(
+                    { event: "should_respond_check", reason: "small_channel", memberCount, responds: true },
+                    "Responding due to small channel size",
+                );
                 return true;
             }
         }
 
-        // 上記以外は応答しない
+        logger.debug({ event: "should_respond_check", responds: false }, "Not responding based on conditions");
         return false;
     };
 
-    if (await shouldRespondToMessage()) {
+    if (await shouldRespondToMessage(messageEvent)) {
         // 応答条件を判定
         try {
             const stream = (await processMessage(messageEvent, true)) as Readable;

@@ -98,3 +98,37 @@ export async function createChatCompletionStream(messages: ChatCompletionMessage
         throw error;
     }
 }
+
+const INTENT_SYSTEM_PROMPT = `あなたは、Slackの会話を分析するアシスタントです。ユーザーからのメッセージが、AIアシスタントであるあなた自身に向けられた質問や要求を含んでいるかどうかを判断してください。
+判断結果は、必ず「はい」または「いいえ」のどちらか一言だけで答えてください。他の言葉は一切含めないでください。`;
+
+export async function determineIntentToReply(userMessage: string): Promise<boolean> {
+    const timer = new Timer("determine_intent_to_reply");
+    try {
+        const completion = await openai.chat.completions.create({
+            model: MODEL, // 通常のモデルで一旦実装（軽量モデルがあれば変更）
+            messages: [
+                { role: "system", content: INTENT_SYSTEM_PROMPT },
+                { role: "user", content: userMessage },
+            ],
+            max_tokens: 5, // 「はい」か「いいえ」なので短いトークンで十分
+            temperature: 0, // 判断なので創造性は不要
+        });
+        timer.end({ model: MODEL, status: "success" });
+        const result = completion.choices[0].message?.content?.trim().toLowerCase();
+        logger.debug({ event: "intent_determined", userMessage, result }, "Intent determination result");
+        return result === "はい";
+    } catch (error) {
+        logger.error(
+            {
+                event: "determine_intent_error",
+                error,
+                model: MODEL,
+                userMessage,
+            },
+            "Error determining intent to reply",
+        );
+        timer.end({ model: MODEL, status: "error" });
+        return false; // エラー時は念のため応答しないようにfalseを返す
+    }
+}
