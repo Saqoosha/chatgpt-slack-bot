@@ -100,7 +100,14 @@ export async function createChatCompletionStream(messages: ChatCompletionMessage
 }
 
 const INTENT_SYSTEM_PROMPT = `あなたは、Slackの会話を分析するアシスタントです。ユーザーからのメッセージが、AIアシスタントであるあなた自身に向けられた質問や要求を含んでいるかどうかを判断してください。
-判断結果は、必ず「はい」または「いいえ」のどちらか一言だけで答えてください。他の言葉は一切含めないでください。`;
+もしこの会話が、あなたとユーザーの二人だけで行われているスレッド内のメッセージであれば、そのユーザーのメッセージはあなたに向けられている可能性がより高いと考慮してください。
+判断結果は、必ず以下のJSON形式で返してください。他の言葉は一切含めないでください。
+\`\`\`json
+{
+  "should_reply": boolean
+}
+\`\`\`
+ここで、should_replyの値は true または false のどちらかです。`;
 
 export async function determineIntentToReply(userMessage: string): Promise<boolean> {
     const timer = new Timer("determine_intent_to_reply");
@@ -111,13 +118,42 @@ export async function determineIntentToReply(userMessage: string): Promise<boole
                 { role: "system", content: INTENT_SYSTEM_PROMPT },
                 { role: "user", content: userMessage },
             ],
-            max_tokens: 5, // 「はい」か「いいえ」なので短いトークンで十分
+            max_tokens: 50, // JSON形式なので少し余裕を持たせる
             temperature: 0, // 判断なので創造性は不要
+            response_format: { type: "json_object" }, // JSONモードを有効化
         });
         timer.end({ model: MODEL, status: "success" });
-        const result = completion.choices[0].message?.content?.trim().toLowerCase();
-        logger.debug({ event: "intent_determined", userMessage, result }, "Intent determination result");
-        return result === "はい";
+        const rawResponse = completion.choices[0].message?.content;
+        if (!rawResponse) {
+            logger.warn({ event: "intent_determined_empty_response", userMessage }, "Empty response from LLM for intent determination");
+            return false;
+        }
+
+        try {
+            const parsedResponse = JSON.parse(rawResponse);
+            const shouldReply = parsedResponse.should_reply;
+            if (typeof shouldReply !== "boolean") {
+                logger.warn(
+                    { event: "intent_determined_invalid_json_type", userMessage, rawResponse, parsedResponse },
+                    "Invalid JSON type for should_reply",
+                );
+                return false;
+            }
+            logger.debug({ event: "intent_determined", userMessage, rawResponse, parsedResponse, shouldReply }, "Intent determination result");
+            return shouldReply;
+        } catch (parseError) {
+            logger.error(
+                {
+                    event: "intent_determined_json_parse_error",
+                    error: parseError,
+                    model: MODEL,
+                    userMessage,
+                    rawResponse,
+                },
+                "Error parsing JSON response for intent determination",
+            );
+            return false;
+        }
     } catch (error) {
         logger.error(
             {
