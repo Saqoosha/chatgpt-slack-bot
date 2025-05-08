@@ -12,6 +12,7 @@
     "diagnose-firestore": "ts-node src/diagnoseFirestore.ts",
     "simple-test": "ts-node src/simpleFirestoreTest.ts",
     "read-test": "ts-node src/readOnlyFirestoreTest.ts",
+    "check-region": "ts-node src/checkFirestoreRegion.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
