@@ -126,15 +126,6 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
 
         prevReply = reply;
         if (message) {
-            logger.info(
-                {
-                    event: "message_update",
-                    channelId: message.channel,
-                    messageTs: message.ts,
-                    text: reply,
-                },
-                "Updating message"
-            );
             await app.client.chat.update({
                 channel: message.channel,
                 ts: message.ts,
@@ -145,15 +136,6 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
                 bufferSize = 0;
             }
         } else {
-            logger.info(
-                {
-                    event: "message_post",
-                    channelId: channel,
-                    threadTs: thread_ts,
-                    text: reply,
-                },
-                "Posting message"
-            );
             message = await app.client.chat.postMessage({
                 channel,
                 thread_ts,
@@ -161,21 +143,8 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
             });
             bufferSize = 0;
 
-            // 最初のメッセージ送信時の時間を計測
+            // 最初のメッセージ送信時のフラグを設定
             if (!firstMessageSent && requestStartTime) {
-                const totalTime = performance.now() - requestStartTime;
-                const streamTime = performance.now() - t;
-                logger.info(
-                    {
-                        event: "first_message_sent",
-                        channelId: channel,
-                        threadTs: thread_ts,
-                        totalTime: `${totalTime.toFixed(2)}ms`,
-                        streamTime: `${streamTime.toFixed(2)}ms`,
-                        messageLength: reply.length,
-                    },
-                    "First message sent",
-                );
                 firstMessageSent = true;
             }
         }
