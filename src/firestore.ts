@@ -21,7 +21,8 @@ export function initializeFirestore(): Firestore {
         }
 
         firestoreDB = getFirestore();
-        logger.info({ event: "firestore_initialized" }, "Firestore initialized successfully");
+        firestoreDB.settings({ ignoreUndefinedProperties: true });
+        logger.info({ event: "firestore_initialized", database: "chatgpt-slack-bot" }, "Firestore initialized successfully");
         return firestoreDB;
     } catch (error) {
         logger.error({ event: "firestore_init_error", error }, "Error initializing Firestore");
