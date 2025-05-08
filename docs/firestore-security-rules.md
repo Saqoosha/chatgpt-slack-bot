@@ -28,25 +28,30 @@ service cloud.firestore {
 
 ## 本番環境用セキュリティルール
 
-本番環境では、より制限的なルールを設定することをお勧めします。例えば：
+本番環境では、より制限的なルールを設定することをお勧めします：
 
 ```
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // system_promptsコレクションのみアクセスを許可
     match /system_prompts/{document=**} {
-      // 認証済みユーザーのみ読み書き可能
-      allow read, write: if request.auth != null;
+      // サービスアカウントからのアクセスのみ許可
+      allow read, write: if request.auth != null && 
+                          request.auth.token.email == "slack-rag-bot-sa@whatever-co.iam.gserviceaccount.com";
     }
-    
-    // その他のコレクションに対するルール
-    match /{collection}/{document=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.token.admin == true;
+    // 他のコレクションはすべて拒否
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
 ```
+
+このルールでは：
+1. サービスアカウントのメールアドレスを実際のものに置き換えてください
+2. system_promptsコレクションのみアクセスを許可
+3. 認証されたサービスアカウントからのアクセスのみ許可
 
 ## 注意事項
 
