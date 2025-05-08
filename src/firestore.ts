@@ -8,12 +8,27 @@ export const SYSTEM_PROMPTS_COLLECTION = "system_prompts";
 
 let firestoreDB: Firestore;
 
+/**
+ * Firestoreクライアントを初期化する関数
+ * 
+ * 注意: この関数を呼び出す前に、以下の準備が必要です:
+ * 1. Firebase Consoleでプロジェクトを作成
+ * 2. Firestoreデータベースを作成（「データベースの作成」ボタンをクリック）
+ * 3. サービスアカウントに適切な権限を付与
+ * 4. 環境変数GOOGLE_APPLICATION_CREDENTIALSを設定
+ */
 export function initializeFirestore(): Firestore {
     if (firestoreDB) {
         return firestoreDB;
     }
 
     try {
+        if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+            const errorMsg = "環境変数GOOGLE_APPLICATION_CREDENTIALSが設定されていません。";
+            logger.error({ event: "firestore_env_error" }, errorMsg);
+            throw new Error(errorMsg);
+        }
+
         if (getApps().length === 0) {
             initializeApp({
                 projectId: config.FIREBASE_PROJECT_ID,
@@ -21,7 +36,7 @@ export function initializeFirestore(): Firestore {
             logger.info({ 
                 event: "firebase_app_initialized", 
                 projectId: config.FIREBASE_PROJECT_ID,
-                credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS || "未設定"
+                credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS
             }, "Firebase app initialized");
         }
 
@@ -33,12 +48,18 @@ export function initializeFirestore(): Firestore {
         
         logger.info({ 
             event: "firestore_initialized", 
-            projectId: config.FIREBASE_PROJECT_ID
+            projectId: config.FIREBASE_PROJECT_ID,
+            databaseId: "(default)" // Firestoreのデフォルトデータベース
         }, "Firestore initialized successfully");
         
         return firestoreDB;
     } catch (error) {
-        logger.error({ event: "firestore_init_error", error }, "Error initializing Firestore");
+        logger.error({ 
+            event: "firestore_init_error", 
+            error,
+            projectId: config.FIREBASE_PROJECT_ID,
+            credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS || "未設定"
+        }, "Error initializing Firestore");
         throw error;
     }
 }
