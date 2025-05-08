@@ -20,9 +20,13 @@ export function formatMarkdownForSlack(text: string): string {
   try {
     let formattedText = text;
     
-    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '*$1*');
+    const originalText = formattedText;
     
-    formattedText = formattedText.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '_$1_');
+    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '__BOLD_MARKER__$1__BOLD_MARKER__');
+    
+    formattedText = formattedText.replace(/\*(.*?)\*/g, '_$1_');
+    
+    formattedText = formattedText.replace(/__BOLD_MARKER__(.*?)__BOLD_MARKER__/g, '*$1*');
     
     formattedText = formattedText.replace(/~~(.*?)~~/g, '~$1~');
     
@@ -30,10 +34,10 @@ export function formatMarkdownForSlack(text: string): string {
     
     logger.info({ 
       event: "markdown_format", 
-      original: text, 
+      original: originalText, 
       formatted: formattedText,
-      originalContainsBold: text.includes("**"),
-      originalContainsItalic: text.includes("*"),
+      originalContainsBold: originalText.includes("**"),
+      originalContainsItalic: originalText.includes("*"),
       formattedContainsBold: formattedText.includes("*"),
       formattedContainsItalic: formattedText.includes("_")
     }, "Markdown formatted for Slack");
