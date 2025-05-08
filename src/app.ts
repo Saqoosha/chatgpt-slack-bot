@@ -12,7 +12,7 @@ import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import { handleMessageEvent, handleMentionEvent, handleReactionEvent, handleSystemPromptCommand } from "./handlers";
 import { config } from "./config";
 import { logger } from "./logger";
-import { formatMarkdownForSlack } from "./markdown";
+
 
 // 基本的なメッセージイベントの型定義
 interface BaseMessageEvent {
@@ -237,15 +237,15 @@ const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readabl
                     event: "message_update_app",
                     channelId: message.channel,
                     messageTs: message.ts,
-                    originalText: reply,
-                    formattedText: formatMarkdownForSlack(reply),
+                    text: reply,
                 },
                 "Updating message from app.ts"
             );
             await app.client.chat.update({
                 channel: message.channel,
                 ts: message.ts,
-                text: formatMarkdownForSlack(reply),
+                text: reply,
+                mrkdwn: true,
             });
         } else {
             logger.info(
@@ -253,15 +253,15 @@ const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readabl
                     event: "message_post_app",
                     channelId: channel,
                     threadTs: thread_ts,
-                    originalText: reply,
-                    formattedText: formatMarkdownForSlack(reply),
+                    text: reply,
                 },
                 "Posting message from app.ts"
             );
             message = await app.client.chat.postMessage({
                 channel,
                 thread_ts,
-                text: formatMarkdownForSlack(reply),
+                text: reply,
+                mrkdwn: true,
             });
         }
     };

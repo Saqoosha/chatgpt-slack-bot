@@ -3,8 +3,6 @@ import type { Readable } from "node:stream";
 import AsyncLock from "async-lock";
 import { app } from "./app";
 import { logger, Timer } from "./logger";
-import { formatMarkdownForSlack } from "./markdown";
-
 const lock = new AsyncLock();
 
 // チャンネル名のキャッシュ
@@ -133,15 +131,15 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
                     event: "message_update",
                     channelId: message.channel,
                     messageTs: message.ts,
-                    originalText: reply,
-                    formattedText: formatMarkdownForSlack(reply),
+                    text: reply,
                 },
                 "Updating message"
             );
             await app.client.chat.update({
                 channel: message.channel,
                 ts: message.ts,
-                text: formatMarkdownForSlack(reply),
+                text: reply,
+                mrkdwn: true,
             });
             if (shouldForceUpdate) {
                 // 更新後はバッファをリセット
@@ -153,15 +151,15 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
                     event: "message_post",
                     channelId: channel,
                     threadTs: thread_ts,
-                    originalText: reply,
-                    formattedText: formatMarkdownForSlack(reply),
+                    text: reply,
                 },
                 "Posting message"
             );
             message = await app.client.chat.postMessage({
                 channel,
                 thread_ts,
-                text: formatMarkdownForSlack(reply),
+                text: reply,
+                mrkdwn: true,
             });
             bufferSize = 0;
 
