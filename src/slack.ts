@@ -139,7 +139,6 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
                 channel: message.channel,
                 ts: message.ts,
                 text: reply,
-                mrkdwn: true,
             });
             if (shouldForceUpdate) {
                 // 更新後はバッファをリセット
@@ -159,7 +158,6 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
                 channel,
                 thread_ts,
                 text: reply,
-                mrkdwn: true,
             });
             bufferSize = 0;
 

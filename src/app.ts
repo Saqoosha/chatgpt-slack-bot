@@ -245,7 +245,6 @@ const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readabl
                 channel: message.channel,
                 ts: message.ts,
                 text: reply,
-                mrkdwn: true,
             });
         } else {
             logger.info(
@@ -261,7 +260,6 @@ const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readabl
                 channel,
                 thread_ts,
                 text: reply,
-                mrkdwn: true,
             });
         }
     };

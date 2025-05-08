@@ -227,7 +227,6 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
                 channel: finalEvent.channel,
                 thread_ts: finalEvent.ts,
                 text: errorMessage,
-                mrkdwn: true,
             });
             timer.end({ status: "error", channelId: finalEvent.channel });
         }
@@ -281,7 +280,6 @@ export async function handleMentionEvent({ event }: SlackEventMiddlewareArgs<"ap
             channel: finalMentionEvent.channel,
             thread_ts: finalMentionEvent.ts,
             text: errorMessage,
-            mrkdwn: true,
         });
         timer.end({ status: "error", channelId: finalMentionEvent.channel });
     }
@@ -350,7 +348,6 @@ export async function handleReactionEvent({ event, say }: SlackEventMiddlewareAr
         await say({
             text: reply?.trim().replace(/^"(.*)"$/, "$1") || "",
             thread_ts: event.item.ts,
-            mrkdwn: true,
         });
 
         timer.end({ status: "success", language: lang });
@@ -371,7 +368,6 @@ export async function handleReactionEvent({ event, say }: SlackEventMiddlewareAr
                 channel: event.item.channel,
                 thread_ts: event.item.ts,
                 text: `翻訳処理中にエラーが発生しました。(${lang}への翻訳)`,
-                mrkdwn: true,
             });
         } catch (postError) {
             logger.error(
@@ -401,7 +397,6 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
                 channel: command.channel_id,
                 user: command.user_id,
                 text: `このチャンネルの ChatGPT システムプロンプトを「${command.text}」に設定しました。`,
-                mrkdwn: true,
             });
             timer.end({ status: "success", action: "update" });
         } else {
@@ -413,7 +408,6 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
                     channel: command.channel_id,
                     user: command.user_id,
                     text: `このチャンネルの ChatGPT システムプロンプトは「${prompt}」です。`,
-                    mrkdwn: true,
                 });
                 timer.end({ status: "success", action: "read" });
             } else {
@@ -421,7 +415,6 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
                     channel: command.channel_id,
                     user: command.user_id,
                     text: "このチャンネルの ChatGPT システムプロンプトは設定されていません。",
-                    mrkdwn: true,
                 });
                 timer.end({ status: "success", action: "read_empty" });
             }
@@ -442,7 +435,6 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
                 channel: command.channel_id,
                 user: command.user_id,
                 text: "システムプロンプトの処理中にエラーが発生しました。",
-                mrkdwn: true,
             });
         } catch (postError) {
             logger.error(
