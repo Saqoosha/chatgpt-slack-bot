@@ -21,7 +21,10 @@ export function initializeFirestore(): Firestore {
         }
 
         firestoreDB = getFirestore();
-        firestoreDB.settings({ ignoreUndefinedProperties: true });
+        firestoreDB.settings({ 
+            ignoreUndefinedProperties: true,
+            databaseId: "chatgpt-slack-bot"
+        });
         logger.info({ event: "firestore_initialized", database: "chatgpt-slack-bot" }, "Firestore initialized successfully");
         return firestoreDB;
     } catch (error) {
