@@ -133,12 +133,6 @@ setInterval(healthCheck, HEALTH_CHECK_INTERVAL);
         
         initializeFirestore();
         
-        try {
-            await migrateSystemPromptsToFirestore();
-        } catch (migrationError) {
-            logger.error({ event: "migration_error", error: migrationError }, "Error during data migration");
-        }
-        
     } catch (error) {
         logger.error(
             {
