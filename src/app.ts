@@ -238,14 +238,14 @@ const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readabl
                     channelId: message.channel,
                     messageTs: message.ts,
                     originalText: reply,
-                    // formattedText: formatMarkdownForSlack(reply),
+                    formattedText: formatMarkdownForSlack(reply),
                 },
                 "Updating message from app.ts"
             );
             await app.client.chat.update({
                 channel: message.channel,
                 ts: message.ts,
-                text: reply, // 変換処理を一時的に無効化
+                text: formatMarkdownForSlack(reply),
             });
         } else {
             logger.info(
@@ -254,14 +254,14 @@ const sendReplyWithStream = (channel: string, thread_ts: string, stream: Readabl
                     channelId: channel,
                     threadTs: thread_ts,
                     originalText: reply,
-                    // formattedText: formatMarkdownForSlack(reply),
+                    formattedText: formatMarkdownForSlack(reply),
                 },
                 "Posting message from app.ts"
             );
             message = await app.client.chat.postMessage({
                 channel,
                 thread_ts,
-                text: reply, // 変換処理を一時的に無効化
+                text: formatMarkdownForSlack(reply),
             });
         }
     };
