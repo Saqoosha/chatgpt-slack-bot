@@ -8,6 +8,8 @@ import AsyncLock from "async-lock";
 
 import { createChatCompletion, createChatCompletionStream } from "./chat";
 import { getAllKeyValue, readKeyValue } from "./sskvs";
+import { initializeFirestore } from "./firestore";
+import { migrateSystemPromptsToFirestore } from "./migrateData";
 import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import { handleMessageEvent, handleMentionEvent, handleReactionEvent, handleSystemPromptCommand } from "./handlers";
 import { config } from "./config";
@@ -128,8 +130,15 @@ setInterval(healthCheck, HEALTH_CHECK_INTERVAL);
     try {
         await app.start();
         console.log("⚡️ Bolt app is running!");
-        const keyvalues = await getAllKeyValue();
-        console.log({ keyvalues });
+        
+        initializeFirestore();
+        
+        try {
+            await migrateSystemPromptsToFirestore();
+        } catch (migrationError) {
+            logger.error({ event: "migration_error", error: migrationError }, "Error during data migration");
+        }
+        
     } catch (error) {
         logger.error(
             {

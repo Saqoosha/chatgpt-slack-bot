@@ -32,6 +32,7 @@ export interface Env {
     OPENAI_API_KEY: string;
     OPENAI_MODEL?: string;
     SSKVS_API_URL: string;
+    FIREBASE_PROJECT_ID: string;
     PORT?: string;
 }
 
