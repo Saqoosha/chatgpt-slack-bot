@@ -9,7 +9,7 @@ import { getSystemPrompt } from "./systemPrompt";
 import { logger, Timer } from "./logger";
 
 // トークン数の制限値（GPT-3.5/4の制限に基づく）
-const MAX_INPUT_TOKENS = 4000;
+const MAX_INPUT_TOKENS = 8000;
 
 // テキストのトークン数を概算する関数（日本語は1文字2トークンとして概算）
 function estimateTokenCount(text: string): number {
