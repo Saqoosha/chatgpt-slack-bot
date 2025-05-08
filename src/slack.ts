@@ -128,20 +128,40 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
 
         prevReply = reply;
         if (message) {
+            logger.info(
+                {
+                    event: "message_update",
+                    channelId: message.channel,
+                    messageTs: message.ts,
+                    originalText: reply,
+                    // formattedText: formatMarkdownForSlack(reply),
+                },
+                "Updating message"
+            );
             await app.client.chat.update({
                 channel: message.channel,
                 ts: message.ts,
-                text: formatMarkdownForSlack(reply),
+                text: reply, // 変換処理を一時的に無効化
             });
             if (shouldForceUpdate) {
                 // 更新後はバッファをリセット
                 bufferSize = 0;
             }
         } else {
+            logger.info(
+                {
+                    event: "message_post",
+                    channelId: channel,
+                    threadTs: thread_ts,
+                    originalText: reply,
+                    // formattedText: formatMarkdownForSlack(reply),
+                },
+                "Posting message"
+            );
             message = await app.client.chat.postMessage({
                 channel,
                 thread_ts,
-                text: formatMarkdownForSlack(reply),
+                text: reply, // 変換処理を一時的に無効化
             });
             bufferSize = 0;
 
