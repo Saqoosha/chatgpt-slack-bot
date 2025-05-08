@@ -3,7 +3,6 @@ import type { Readable } from "node:stream";
 import AsyncLock from "async-lock";
 import { app } from "./app";
 import { logger, Timer } from "./logger";
-
 const lock = new AsyncLock();
 
 // チャンネル名のキャッシュ
@@ -144,21 +143,8 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
             });
             bufferSize = 0;
 
-            // 最初のメッセージ送信時の時間を計測
+            // 最初のメッセージ送信時のフラグを設定
             if (!firstMessageSent && requestStartTime) {
-                const totalTime = performance.now() - requestStartTime;
-                const streamTime = performance.now() - t;
-                logger.info(
-                    {
-                        event: "first_message_sent",
-                        channelId: channel,
-                        threadTs: thread_ts,
-                        totalTime: `${totalTime.toFixed(2)}ms`,
-                        streamTime: `${streamTime.toFixed(2)}ms`,
-                        messageLength: reply.length,
-                    },
-                    "First message sent",
-                );
                 firstMessageSent = true;
             }
         }

@@ -12,6 +12,7 @@ import { config } from "./config";
 import { updateSystemPrompt } from "./systemPrompt";
 import { logger, Timer } from "./logger";
 
+
 // Slack の message イベントの型 (サブタイプを含む可能性あり)
 // GenericMessageEvent が最も汎用的なメッセージイベントの型として使えそう
 type SlackMessageEventType = SlackEventMiddlewareArgs<"message">["event"];

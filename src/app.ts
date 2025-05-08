@@ -13,6 +13,7 @@ import { handleMessageEvent, handleMentionEvent, handleReactionEvent, handleSyst
 import { config } from "./config";
 import { logger } from "./logger";
 
+
 // 基本的なメッセージイベントの型定義
 interface BaseMessageEvent {
     type: string;
