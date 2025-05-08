@@ -3,16 +3,16 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { initializeApp, cert, getApps } from "firebase-admin/app";
-import { getFirestore, Firestore } from "firebase-admin/firestore";
+import { getFirestore } from "firebase-admin/firestore";
 import * as fs from 'fs';
 
 /**
- * 最もシンプルなFirestoreテストスクリプト
+ * 読み取り専用のFirestoreテストスクリプト
  * 権限エラーの原因を特定するための基本的なテストを実行します
  */
 async function main() {
     try {
-        console.log("=== シンプルFirestoreテスト ===");
+        console.log("=== 読み取り専用Firestoreテスト ===");
         
         const projectId = process.env.FIREBASE_PROJECT_ID;
         const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -31,16 +31,11 @@ async function main() {
         console.log(`サービスアカウントプロジェクトID: ${serviceAccount.project_id}`);
         console.log(`サービスアカウントクライアントメール: ${serviceAccount.client_email.split('@')[0]}@...`);
         
-        const existingApps = getApps();
-        console.log(`既存のアプリ数: ${existingApps.length}`);
-        
         console.log("Firebase初期化中...");
         const app = initializeApp({
             credential: cert(serviceAccount),
             projectId: serviceAccount.project_id
         });
-        
-        console.log(`Firebaseアプリ名: ${app.name}`);
         
         console.log("Firestore初期化中...");
         const db = getFirestore(app);
@@ -51,41 +46,53 @@ async function main() {
         });
         
         console.log(`Firestoreプロジェクト: ${serviceAccount.project_id}`);
+        console.log(`Firestoreデータベース: chatgpt-slack-bot`);
         
-        console.log("\nシンプルなドキュメント作成テスト...");
+        console.log("\n読み取りテスト実行中...");
         try {
-            const testCollection = db.collection('test_collection');
-            const testDoc = testCollection.doc('test_doc');
+            console.log("コレクション一覧を取得中...");
+            const collections = await db.listCollections();
+            console.log(`コレクション数: ${collections.length}`);
             
-            console.log(`ドキュメントパス: ${testDoc.path}`);
-            
-            await testDoc.set({
-                test: 'テストデータ',
-                timestamp: new Date()
-            });
-            
-            console.log("ドキュメント作成成功！");
-            
-            const docSnapshot = await testDoc.get();
-            if (docSnapshot.exists) {
-                console.log("ドキュメント読み取り成功:", docSnapshot.data());
-            } else {
-                console.log("ドキュメントが存在しません");
+            for (const collection of collections) {
+                console.log(`- コレクション: ${collection.id}`);
+                
+                const snapshot = await collection.get();
+                console.log(`  ドキュメント数: ${snapshot.size}`);
+                
+                let count = 0;
+                snapshot.forEach(doc => {
+                    if (count < 5) {
+                        console.log(`  - ドキュメントID: ${doc.id}`);
+                        count++;
+                    }
+                });
             }
             
-            await testDoc.delete();
-            console.log("ドキュメント削除成功");
+            if (collections.length === 0 || !collections.some(c => c.id === 'system_prompts')) {
+                console.log("\nsystem_promptsコレクションが見つかりません。");
+            } else {
+                console.log("\nsystem_promptsコレクションが見つかりました。");
+                
+                const systemPromptsSnapshot = await db.collection('system_prompts').get();
+                console.log(`system_promptsコレクションのドキュメント数: ${systemPromptsSnapshot.size}`);
+                
+                systemPromptsSnapshot.forEach(doc => {
+                    console.log(`- ドキュメントID: ${doc.id}`);
+                    console.log(`  データ: ${JSON.stringify(doc.data())}`);
+                });
+            }
             
         } catch (error) {
-            console.error("Firestoreテストエラー:", error);
-            console.error("エラーの詳細:", JSON.stringify(error));
+            console.error("Firestore読み取りエラー:", error);
+            console.error("エラーの詳細:", JSON.stringify(error, null, 2));
         }
         
         console.log("\n=== テスト完了 ===");
         
     } catch (error) {
         console.error("テストエラー:", error);
-        console.error("エラーの詳細:", JSON.stringify(error));
+        console.error("エラーの詳細:", JSON.stringify(error, null, 2));
         process.exit(1);
     }
 }
