@@ -20,10 +20,9 @@ export function formatMarkdownForSlack(text: string): string {
   try {
     let formattedText = text;
     
+    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '*$1*');
     
     formattedText = formattedText.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '_$1_');
-    
-    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '*$1*');
     
     formattedText = formattedText.replace(/~~(.*?)~~/g, '~$1~');
     
