@@ -10,6 +10,7 @@
     "verify": "ts-node src/verifyMigration.ts",
     "test-firestore": "ts-node src/testFirestore.ts",
     "diagnose-firestore": "ts-node src/diagnoseFirestore.ts",
+    "simple-test": "ts-node src/simpleFirestoreTest.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
