@@ -6,9 +6,9 @@ Slackでは標準的なマークダウンとは異なる独自の「mrkdwn」形
 
 | 書式 | Slack記法 | 例 | 表示 |
 |------|----------|-----|------|
-| 太字 | `*テキスト*` | `*太字*` | **太字** |
-| 斜体 | `_テキスト_` | `_斜体_` | *斜体* |
-| 取り消し線 | `~テキスト~` | `~取り消し線~` | ~~取り消し線~~ |
+| 太字 | `*テキスト*` (前後にスペースが必要) | `*太字*` | **太字** |
+| 斜体 | `_テキスト_` (前後にスペースが必要) | `_斜体_` | *斜体* |
+| 取り消し線 | `~テキスト~` (前後にスペースが必要) | `~取り消し線~` | ~~取り消し線~~ |
 | インラインコード | `` `コード` `` | `` `コード` `` | `コード` |
 | コードブロック | ` ```コード``` ` | ` ```コード``` ` | ```コード``` |
 | 引用 | `>テキスト` | `>引用テキスト` | > 引用テキスト |
@@ -93,14 +93,14 @@ export function formatMarkdownForSlack(text: string): string {
   try {
     let formattedText = text;
 
-    // 太字: **text** → *text*
-    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '*$1*');
+    // 太字: **text** → *text* (前後にスペースが必要)
+    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, ' *$1* ');
     
-    // 斜体: *text* → _text_
-    formattedText = formattedText.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '_$1_');
+    // 斜体: *text* → _text_ (前後にスペースが必要)
+    formattedText = formattedText.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, ' _$1_ ');
     
-    // 取り消し線: ~~text~~ → ~text~
-    formattedText = formattedText.replace(/~~(.*?)~~/g, '~$1~');
+    // 取り消し線: ~~text~~ → ~text~ (前後にスペースが必要)
+    formattedText = formattedText.replace(/~~(.*?)~~/g, ' ~$1~ ');
     
     // 引用: > text → >text
     formattedText = formattedText.replace(/^>\s+/gm, '>');
