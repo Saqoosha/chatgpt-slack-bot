@@ -8,9 +8,6 @@ import { app } from "./app";
 import { getSystemPrompt } from "./systemPrompt";
 import { logger, Timer } from "./logger";
 
-// トークン数の制限値（GPT-3.5/4の制限に基づく）
-const MAX_INPUT_TOKENS = 8000;
-
 // テキストのトークン数を概算する関数（日本語は1文字2トークンとして概算）
 function estimateTokenCount(text: string): number {
     // 英数字と記号は1トークン、日本語文字は2トークンとして概算
@@ -34,9 +31,6 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
         if (systemPrompt) {
             const systemTokens = estimateTokenCount(systemPrompt);
             totalTokens += systemTokens;
-            if (totalTokens > MAX_INPUT_TOKENS) {
-                throw new ThreadLengthError("System prompt is too long", { tokenCount: totalTokens });
-            }
             messages.push({ role: "system", content: systemPrompt });
         }
 
@@ -66,9 +60,6 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
             for (const message of reversedMessages) {
                 if (message.text) {
                     const messageTokens = estimateTokenCount(message.text);
-                    if (totalTokens + messageTokens > MAX_INPUT_TOKENS) {
-                        break;
-                    }
                     totalTokens += messageTokens;
                     selectedMessages.unshift({
                         role: message.bot_id ? "assistant" : "user",
@@ -78,26 +69,11 @@ export async function processMessage(event: BaseMessageEvent, asStream = false):
             }
 
             messages.push(...selectedMessages);
-
-            if (selectedMessages.length === 0 && reversedMessages.length > 0) {
-                throw new ThreadLengthError("Latest message is too long", {
-                    tokenCount: estimateTokenCount(reversedMessages[0].text || ""),
-                    maxTokens: MAX_INPUT_TOKENS,
-                });
-            }
         }
 
         if (event.text) {
             const newMessageTokens = estimateTokenCount(event.text);
             totalTokens += newMessageTokens;
-
-            if (totalTokens > MAX_INPUT_TOKENS) {
-                throw new ThreadLengthError("Input message is too long", {
-                    tokenCount: totalTokens,
-                    maxTokens: MAX_INPUT_TOKENS,
-                });
-            }
-
             messages.push({ role: "user", content: event.text });
         }
 
