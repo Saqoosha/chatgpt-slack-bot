@@ -9,7 +9,6 @@ import AsyncLock from "async-lock";
 import { createChatCompletion, createChatCompletionStream } from "./chat";
 import { getAllKeyValue, readKeyValue } from "./sskvs";
 import { initializeFirestore } from "./firestore";
-import { migrateSystemPromptsToFirestore } from "./migrateData";
 import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import { handleMessageEvent, handleMentionEvent, handleReactionEvent, handleSystemPromptCommand } from "./handlers";
 import { config } from "./config";
