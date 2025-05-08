@@ -18,14 +18,24 @@ export function initializeFirestore(): Firestore {
             initializeApp({
                 projectId: config.FIREBASE_PROJECT_ID,
             });
+            logger.info({ 
+                event: "firebase_app_initialized", 
+                projectId: config.FIREBASE_PROJECT_ID,
+                credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS || "未設定"
+            }, "Firebase app initialized");
         }
 
         firestoreDB = getFirestore();
+        
         firestoreDB.settings({ 
-            ignoreUndefinedProperties: true,
-            databaseId: "chatgpt-slack-bot"
+            ignoreUndefinedProperties: true
         });
-        logger.info({ event: "firestore_initialized", database: "chatgpt-slack-bot" }, "Firestore initialized successfully");
+        
+        logger.info({ 
+            event: "firestore_initialized", 
+            projectId: config.FIREBASE_PROJECT_ID
+        }, "Firestore initialized successfully");
+        
         return firestoreDB;
     } catch (error) {
         logger.error({ event: "firestore_init_error", error }, "Error initializing Firestore");
