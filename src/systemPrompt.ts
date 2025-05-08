@@ -14,8 +14,18 @@ interface SystemPromptCache {
 const systemPromptCache = new Map<string, SystemPromptCache>();
 const SYSTEM_PROMPT_CACHE_TTL = 1000 * 60 * 60; // 1時間
 
-// Botの識別情報
-const BOT_IDENTITY_INFO = `あなたは会話の中で<@${config.SLACK_BOT_USER_ID}>と呼ばれることがあります。これはSlack上でのあなた自身のIDです。このIDでメンションされた場合は、それがあなた自身へのメンションだと認識してください。また、「ChatGPT」と呼ばれた場合も、それはあなた自身のことを指していると理解してください。`;
+// Botの識別情報とSlackマークダウン形式の仕様
+const BOT_IDENTITY_INFO = `あなたは会話の中で<@${config.SLACK_BOT_USER_ID}>と呼ばれることがあります。これはSlack上でのあなた自身のIDです。このIDでメンションされた場合は、それがあなた自身へのメンションだと認識してください。また、「ChatGPT」と呼ばれた場合も、それはあなた自身のことを指していると理解してください。
+
+あなたの返答はSlackに表示されます。Slackでは以下のマークダウン記法を使用してください：
+- 太字は *テキスト* と記述します（単一のアスタリスク）
+- 斜体は _テキスト_ と記述します（アンダースコア）
+- 取り消し線は ~テキスト~ と記述します（単一のチルダ）
+- コードブロックは \`\`\`言語名\n コード \`\`\` と記述します
+- インラインコードは \`コード\` と記述します
+- 引用は >テキスト と記述します
+
+標準的なマークダウン記法（**太字**、*斜体*、~~取り消し線~~など）ではなく、必ずSlack形式のマークダウンを使用してください。`;
 
 // キャッシュキーを生成
 function createCacheKey(channelId: string, channelName: string): string {
