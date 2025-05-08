@@ -43,13 +43,14 @@ export function initializeFirestore(): Firestore {
         firestoreDB = getFirestore();
         
         firestoreDB.settings({ 
-            ignoreUndefinedProperties: true
+            ignoreUndefinedProperties: true,
+            databaseId: "chatgpt-slack-bot" // Firestoreデータベース名を明示的に指定
         });
         
         logger.info({ 
             event: "firestore_initialized", 
             projectId: config.FIREBASE_PROJECT_ID,
-            databaseId: "(default)" // Firestoreのデフォルトデータベース
+            databaseId: "chatgpt-slack-bot" // 指定したFirestoreデータベース名
         }, "Firestore initialized successfully");
         
         return firestoreDB;

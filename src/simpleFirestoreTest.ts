@@ -33,6 +33,12 @@ async function main() {
         console.log("Firestore初期化中...");
         const db = getFirestore();
         
+        db.settings({ 
+            ignoreUndefinedProperties: true,
+            databaseId: "chatgpt-slack-bot" 
+        });
+        console.log(`データベースID: chatgpt-slack-bot`);
+        
         console.log("コレクション一覧を取得中...");
         try {
             const collections = await db.listCollections();
