@@ -27,6 +27,7 @@ export function formatMarkdownForSlack(text: string): string {
     formattedText = formattedText.replace(/~~(.*?)~~/g, '~$1~');
     
     
+    formattedText = formattedText.replace(/^>\s+/gm, '>');
     
     logger.debug({ event: "markdown_format", original: text.length, formatted: formattedText.length }, "Markdown formatted for Slack");
     
