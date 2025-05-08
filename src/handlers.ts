@@ -11,6 +11,7 @@ import { app } from "./app";
 import { config } from "./config";
 import { updateSystemPrompt } from "./systemPrompt";
 import { logger, Timer } from "./logger";
+import { formatMarkdownForSlack } from "./markdown";
 
 // Slack の message イベントの型 (サブタイプを含む可能性あり)
 // GenericMessageEvent が最も汎用的なメッセージイベントの型として使えそう
@@ -225,7 +226,7 @@ export async function handleMessageEvent({ event, say }: SlackEventMiddlewareArg
             await app.client.chat.postMessage({
                 channel: finalEvent.channel,
                 thread_ts: finalEvent.ts,
-                text: errorMessage,
+                text: formatMarkdownForSlack(errorMessage),
             });
             timer.end({ status: "error", channelId: finalEvent.channel });
         }
@@ -278,7 +279,7 @@ export async function handleMentionEvent({ event }: SlackEventMiddlewareArgs<"ap
         await app.client.chat.postMessage({
             channel: finalMentionEvent.channel,
             thread_ts: finalMentionEvent.ts,
-            text: errorMessage,
+            text: formatMarkdownForSlack(errorMessage),
         });
         timer.end({ status: "error", channelId: finalMentionEvent.channel });
     }
@@ -345,7 +346,7 @@ export async function handleReactionEvent({ event, say }: SlackEventMiddlewareAr
         ]);
 
         await say({
-            text: reply?.trim().replace(/^"(.*)"$/, "$1") || "",
+            text: formatMarkdownForSlack(reply?.trim().replace(/^"(.*)"$/, "$1") || ""),
             thread_ts: event.item.ts,
         });
 
@@ -366,7 +367,7 @@ export async function handleReactionEvent({ event, say }: SlackEventMiddlewareAr
             await app.client.chat.postMessage({
                 channel: event.item.channel,
                 thread_ts: event.item.ts,
-                text: `翻訳処理中にエラーが発生しました。(${lang}への翻訳)`,
+                text: formatMarkdownForSlack(`翻訳処理中にエラーが発生しました。(${lang}への翻訳)`),
             });
         } catch (postError) {
             logger.error(
@@ -395,7 +396,7 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
             await app.client.chat.postEphemeral({
                 channel: command.channel_id,
                 user: command.user_id,
-                text: `このチャンネルの ChatGPT システムプロンプトを「${command.text}」に設定しました。`,
+                text: formatMarkdownForSlack(`このチャンネルの ChatGPT システムプロンプトを「${command.text}」に設定しました。`),
             });
             timer.end({ status: "success", action: "update" });
         } else {
@@ -406,14 +407,14 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
                 await app.client.chat.postEphemeral({
                     channel: command.channel_id,
                     user: command.user_id,
-                    text: `このチャンネルの ChatGPT システムプロンプトは「${prompt}」です。`,
+                    text: formatMarkdownForSlack(`このチャンネルの ChatGPT システムプロンプトは「${prompt}」です。`),
                 });
                 timer.end({ status: "success", action: "read" });
             } else {
                 await app.client.chat.postEphemeral({
                     channel: command.channel_id,
                     user: command.user_id,
-                    text: "このチャンネルの ChatGPT システムプロンプトは設定されていません。",
+                    text: formatMarkdownForSlack("このチャンネルの ChatGPT システムプロンプトは設定されていません。"),
                 });
                 timer.end({ status: "success", action: "read_empty" });
             }
@@ -433,7 +434,7 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
             await app.client.chat.postEphemeral({
                 channel: command.channel_id,
                 user: command.user_id,
-                text: "システムプロンプトの処理中にエラーが発生しました。",
+                text: formatMarkdownForSlack("システムプロンプトの処理中にエラーが発生しました。"),
             });
         } catch (postError) {
             logger.error(

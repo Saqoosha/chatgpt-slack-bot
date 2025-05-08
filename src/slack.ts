@@ -3,6 +3,7 @@ import type { Readable } from "node:stream";
 import AsyncLock from "async-lock";
 import { app } from "./app";
 import { logger, Timer } from "./logger";
+import { formatMarkdownForSlack } from "./markdown";
 
 const lock = new AsyncLock();
 
@@ -130,7 +131,7 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
             await app.client.chat.update({
                 channel: message.channel,
                 ts: message.ts,
-                text: reply,
+                text: formatMarkdownForSlack(reply),
             });
             if (shouldForceUpdate) {
                 // 更新後はバッファをリセット
@@ -140,7 +141,7 @@ export const sendReplyWithStream = (channel: string, thread_ts: string, stream: 
             message = await app.client.chat.postMessage({
                 channel,
                 thread_ts,
-                text: reply,
+                text: formatMarkdownForSlack(reply),
             });
             bufferSize = 0;
 
