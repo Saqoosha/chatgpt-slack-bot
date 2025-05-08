@@ -28,10 +28,14 @@ export function formatMarkdownForSlack(text: string): string {
     
     formattedText = formattedText.replace(/^>\s+/gm, '>');
     
-    logger.debug({ 
+    logger.info({ 
       event: "markdown_format", 
       original: text, 
-      formatted: formattedText 
+      formatted: formattedText,
+      originalContainsBold: text.includes("**"),
+      originalContainsItalic: text.includes("*"),
+      formattedContainsBold: formattedText.includes("*"),
+      formattedContainsItalic: formattedText.includes("_")
     }, "Markdown formatted for Slack");
     
     return formattedText;
