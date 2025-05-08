@@ -15,6 +15,7 @@ function validateEnv(env: Partial<Env>): asserts env is Env {
         "SLACK_BOT_USER_ID",
         "OPENAI_API_KEY",
         "SSKVS_API_URL",
+        "FIREBASE_PROJECT_ID",
     ];
 
     const missingEnvVars = requiredEnvVars.filter((key) => !env[key]);
@@ -33,6 +34,7 @@ export function loadConfig(): Env {
         OPENAI_API_KEY: process.env.OPENAI_API_KEY,
         OPENAI_MODEL: process.env.OPENAI_MODEL,
         SSKVS_API_URL: process.env.SSKVS_API_URL,
+        FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
         PORT: process.env.PORT,
     };
 }

@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { getChannelName } from "./slack";
-import { readKeyValue, writeKeyValue } from "./sskvs";
+import { readKeyValue, writeKeyValue, getAllKeyValue } from "./sskvs";
+import { readSystemPrompt, writeSystemPrompt, getAllSystemPrompts } from "./firestore";
 import { logger, Timer } from "./logger";
 import { config } from "./config";
 
@@ -67,9 +68,7 @@ export async function getSystemPrompt(channelId: string): Promise<string> {
             return addBotIdentityInfo(legacyCached.prompt);
         }
 
-        // SSKVSから取得
-        const value = await readKeyValue(key);
-        const prompt = value || "";
+        const prompt = await readSystemPrompt(key);
 
         // 結果をキャッシュ（両方の形式で保存）
         const cacheEntry = {
@@ -101,7 +100,7 @@ export async function updateSystemPrompt(channelId: string, text: string): Promi
     try {
         const channelName = await getChannelName(channelId);
         const key = createCacheKey(channelId, channelName);
-        await writeKeyValue(key, text);
+        await writeSystemPrompt(key, text);
         invalidateSystemPromptCache(channelId, channelName);
         timer.end({ status: "success", channelId });
     } catch (error) {

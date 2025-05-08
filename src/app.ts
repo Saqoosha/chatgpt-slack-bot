@@ -8,6 +8,7 @@ import AsyncLock from "async-lock";
 
 import { createChatCompletion, createChatCompletionStream } from "./chat";
 import { getAllKeyValue, readKeyValue } from "./sskvs";
+import { initializeFirestore } from "./firestore";
 import type { ChatCompletionMessageParam } from "openai/resources/index.mjs";
 import { handleMessageEvent, handleMentionEvent, handleReactionEvent, handleSystemPromptCommand } from "./handlers";
 import { config } from "./config";
@@ -128,8 +129,9 @@ setInterval(healthCheck, HEALTH_CHECK_INTERVAL);
     try {
         await app.start();
         console.log("⚡️ Bolt app is running!");
-        const keyvalues = await getAllKeyValue();
-        console.log({ keyvalues });
+        
+        initializeFirestore();
+        
     } catch (error) {
         logger.error(
             {

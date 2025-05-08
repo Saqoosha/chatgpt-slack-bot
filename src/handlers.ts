@@ -6,10 +6,10 @@ import { processMessage } from "./messages";
 import { sendReplyWithStream } from "./slack";
 import { createChatCompletion, determineIntentToReply } from "./chat";
 import { getChannelMemberCount, getChannelName } from "./slack";
-import { readKeyValue } from "./sskvs";
+import { readSystemPrompt } from "./firestore";
 import { app } from "./app";
 import { config } from "./config";
-import { updateSystemPrompt } from "./systemPrompt";
+import { updateSystemPrompt, getSystemPromptKey } from "./systemPrompt";
 import { logger, Timer } from "./logger";
 
 
@@ -401,8 +401,8 @@ export async function handleSystemPromptCommand({ command, ack }: { command: Sys
             timer.end({ status: "success", action: "update" });
         } else {
             const channelName = await getChannelName(command.channel_id);
-            const key = `${command.channel_id}:${channelName}`;
-            const prompt = await readKeyValue(key);
+            const key = getSystemPromptKey(command.channel_id, channelName);
+            const prompt = await readSystemPrompt(key);
             if (prompt) {
                 await app.client.chat.postEphemeral({
                     channel: command.channel_id,
