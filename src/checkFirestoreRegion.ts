@@ -51,8 +51,7 @@ async function main() {
         
         console.log("\nFirestoreプロジェクト情報取得中...");
         try {
-            const projectInfo = await db._getProjectId();
-            console.log(`プロジェクトID: ${projectInfo}`);
+            console.log(`プロジェクトID: ${serviceAccount.project_id}`);
             
             console.log("\nデータベース情報取得中...");
             const databasePath = `projects/${serviceAccount.project_id}/databases/chatgpt-slack-bot`;
